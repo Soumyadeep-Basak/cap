@@ -257,9 +257,14 @@ rag_generation:
   instructions: >
     Answer the question using only the supplied context chunks.
     If the context does not contain enough information to answer
-    confidently, say so plainly instead of guessing. Keep the answer
-    concise and cite the invoice number or report section you relied
-    on when possible.
+    confidently, say so plainly instead of guessing. Preserve relevant
+    invoice details, discrepancies, validation status, and recommendations.
+    Translate technical paths such as `line_items[0].item_code` into clear
+    descriptions such as "item code for line item 1"; do not imply a missing
+    value is present. Keep the answer concise. Attribute evidence using a
+    readable source label and invoice ID from the context markers, for example
+    "Source: report, invoice <invoice_id>". Do not expose the context marker's
+    raw bracket syntax as the citation.
 
 rag_reflection:
   persona: >

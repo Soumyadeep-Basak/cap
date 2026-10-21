@@ -97,6 +97,23 @@ def classify_query_node(state: RagQueryState) -> dict[str, Any]:
     """Classify the question as structured or unstructured."""
     question = state.get("question") or ""
 
+    # Questions about a numbered invoice's stored audit record are structured
+    # unless they explicitly ask for document evidence or cause.
+    has_invoice_reference = re.search(
+        r"\b(?:invoice\s+(?:number\s+|no\.?\s*|#\s*)?)?"
+        r"(?:INV[- ]?\d+|\d{3,})\b",
+        question,
+        flags=re.IGNORECASE,
+    )
+    requests_document_reasoning = re.search(
+        r"\b(?:why|explain|evidence|wording|say|contain|written|document|text|"
+        r"original\s+(?:invoice|document)|supporting\s+(?:document|evidence))\b",
+        question,
+        flags=re.IGNORECASE,
+    )
+    if has_invoice_reference and not requests_document_reasoning:
+        return {"query_type": "structured"}
+
     try:
         result = _invoke_bedrock_json(
             model_id=BEDROCK_RAG_MODEL_ID,
@@ -273,17 +290,52 @@ def _format_sql_answer(
     if not rows:
         return "No matching invoice records were found."
 
-    # The SQL results are the source of truth. Keep all returned fields,
-    # including nested JSON details, rather than summarizing away facts.
-    return json.dumps(
-        {
-            "question": question,
-            "result_count": len(rows),
-            "results": rows,
-        },
-        indent=2,
-        default=str,
-    )
+    def label_for(key: str) -> str:
+        return re.sub(r"\s+", " ", key.replace("_", " ")).strip().capitalize()
+
+    def format_value(value: Any) -> str:
+        if value is None:
+            return "Not provided (null)"
+        return str(value)
+
+    def collection_item_label(key: str) -> str:
+        return {
+            "line items": "Line item",
+            "discrepancies": "Discrepancy",
+            "human feedback": "Feedback entry",
+        }.get(key.lower(), "Item")
+
+    def append_field(lines: list[str], key: str, value: Any, indent: int) -> None:
+        prefix = " " * indent
+        label = label_for(key)
+        if isinstance(value, dict):
+            lines.append(f"{prefix}- **{label}:**")
+            for child_key, child_value in value.items():
+                append_field(lines, str(child_key), child_value, indent + 2)
+        elif isinstance(value, (list, tuple)):
+            lines.append(f"{prefix}- **{label}:**")
+            item_label = collection_item_label(label)
+            for item_index, item in enumerate(value, start=1):
+                if isinstance(item, dict):
+                    lines.append(f"{prefix}  - **{item_label} {item_index}**")
+                    for child_key, child_value in item.items():
+                        append_field(lines, str(child_key), child_value, indent + 4)
+                elif isinstance(item, (list, tuple)):
+                    append_field(
+                        lines, f"{item_label} {item_index}", item, indent + 2
+                    )
+                else:
+                    lines.append(f"{prefix}  - {format_value(item)}")
+        else:
+            lines.append(f"{prefix}- **{label}:** {format_value(value)}")
+
+    lines = [f"Question: {question}", f"Found {len(rows)} matching record(s)."]
+    for row_index, row in enumerate(rows, start=1):
+        lines.extend(["", f"### Result {row_index}"])
+        for key, value in row.items():
+            append_field(lines, str(key), value, 0)
+
+    return "\n".join(lines)
 
 
 def generate_and_run_sql_node(
@@ -566,21 +618,6 @@ def finalize_unstructured_node(
         "query_error": error,
         "accepted": accepted,
     }
-
-def finalize_unstructured_node(state: RagQueryState) -> dict[str, Any]:
-    """Mark the final status of the unstructured answer path."""
-    status = "completed" if state.get("answer") else "failed"
-
-    return {
-        "answer_source": "rag",
-        "query_status": status,
-        "query_error": (
-            None
-            if status == "completed"
-            else "No answer could be generated for this question"
-        ),
-    }
-
 
 # ------------------------------------------------------------------
 # Build graph

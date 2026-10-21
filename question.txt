@@ -1,0 +1,399 @@
+AI Invoice Auditor
+A Containerized, Multilingual Invoice Validation System
+1. Project Overview
+Business Context
+A global logistics firm receives hundreds of vendor invoices daily from suppliers around the world, in different formats (PDF, DOCX, scanned images) and different languages (English, Spanish, German and others). Invoices are currently reviewed by hand and checked against internal ERP records to find discrepancies, missing details or fraudulent submissions.
+That manual process is slow, especially with multilingual documents; error-prone, because it depends on human attention across hundreds of line items; and expensive, because it requires skilled auditors who can also read foreign languages.
+Project Objective
+Design, build and deploy an end-to-end agentic AI system, running as a containerized multi-service application, that:
+•	Ingests multilingual invoices from a monitored folder.
+•	Extracts structured data from PDF, DOCX and scanned image formats.
+•	Translates non-English content into English.
+•	Validates the extracted data against an ERP service backed by PostgreSQL.
+•	Produces discrepancy reports and stores them in a durable audit trail.
+•	Answers natural-language questions about processed invoices using a RAG pipeline.
+•	Allows a human auditor to review, correct and re-validate through a web dashboard.
+•	Starts completely, from a clean machine, with a single command.
+What makes this capstone different: The system is not considered complete when it runs on your laptop. It is complete when the entire stack can be destroyed and recreated, and the audit history and RAG index are still intact. Persistence and deployment are assessed, not assumed.
+2. Problem Statement
+Build an agentic system that monitors an incoming folder, processes each invoice through a LangGraph workflow, and produces a validated, auditable outcome. The system must:
+•	Detect and route new invoice files as they arrive.
+•	Extract invoice number, date, vendor, currency, totals and line items from any supported format.
+•	Detect the source language and translate to English where required.
+•	Validate completeness and internal arithmetic against configurable rules.
+•	Validate quantity, unit price and currency against ERP master data.
+•	Flag discrepancies beyond a configured tolerance and recommend approve, manual review or reject.
+•	Persist every decision, with its evidence, so the audit trail survives infrastructure changes.
+•	Index processed invoices and reports so they can be queried in natural language.
+•	Accept human corrections and re-run validation on demand.
+3. Functional Requirements
+3.1  Invoice Monitoring
+•	Watch the incoming directory, which is mounted into the agent container as a volume.
+•	Detect new files and route them by type to the correct extraction path.
+•	Compute a checksum for each file and skip any invoice already present in the audit trail.
+•	Record every detected file, including ones that fail to process.
+Why a checksum rather than a filename: Vendors rename files freely, and the same invoice can arrive twice under different names. A content checksum is the only reliable way to answer whether this invoice has already been audited.
+3.2  Invoice Extraction
+•	Handle .pdf, .docx and .png (scanned) input.
+•	For PDFs, attempt direct text extraction first; fall back to OCR when no embedded text layer exists.
+•	Use Tesseract with the language packs required by the dataset for scanned documents.
+•	Extract invoice number, date, vendor name, currency and total.
+•	Extract line items: item code, description, quantity, unit price and line total.
+•	Store the complete raw extracted text, not only the parsed fields.
+Store the raw text: OCR is expensive and cannot be cheaply repeated. Keeping the full extracted text means the vector index can be rebuilt without re-reading a single PDF, and a disputed audit can be defended by showing exactly what the system read.
+3.3  Translation
+•	Detect the source language automatically.
+•	Translate non-English content to English using AWS Bedrock models.
+•	Record a translation confidence score alongside the translated text.
+•	Cache translation results so repeated content is not re-translated.
+3.4  Validation
+Invoice Data Validation Agent
+•	Check field completeness against configs/rules.yaml.
+•	Verify that line totals sum to the invoice total and that tax calculations are correct.
+•	Highlight missing or internally inconsistent fields.
+Business Validation Agent
+Calls the mock ERP service over HTTP by service name. The ERP service reads its data from PostgreSQL.
+GET  http://mock-erp:8000/po/{po_number}       ->  PO header and line items
+GET  http://mock-erp:8000/vendor/{vendor_id}   ->  vendor master record
+GET  http://mock-erp:8000/sku/{sku_code}       ->  SKU master record
+
+•	Compare quantity, unit price and currency against the matching PO.
+•	Apply the tolerance thresholds defined in rules.yaml.
+•	Record one discrepancy row per mismatched field, with both values and the deviation.
+Service boundary — this is assessed: The agent container can technically reach PostgreSQL directly, because both services share the same database. It must not query ERP tables that way. All ERP data is obtained through the mock-erp HTTP API. Bypassing the API collapses the service boundary and makes the ERP service meaningless.
+3.5  Reporting
+•	Generate a JSON report for machine consumption and an HTML report for human reading.
+•	Include a discrepancy summary, missing field list and translation confidence.
+•	Produce a recommendation: approve, manual review or reject.
+•	Write the outcome to PostgreSQL. Report files may also be written, but the database is the system of record.
+3.6  RAG-based Querying
+Implement a LangGraph-based RAG pipeline over the processed invoices and their reports:
+•	Indexing Agent — chunk invoice text and report text, embed, and write to Qdrant.
+•	Retrieval Agent — retrieve relevant chunks, with the ability to filter to a specific invoice.
+•	Augmentation Agent — rerank and assemble context.
+•	Generation Agent — answer the question through LiteLLM.
+•	Reflection Agent — evaluate the answer using the RAG Triad (relevance, groundedness, context relevance).
+•	If the overall avg score is greater than 0.7 then generated answer should be displayed to the user else 
+Retrieve the chunks to generate response for the user query , max retires 3 . 
+3.7  Human-in-the-Loop Dashboard
+A Streamlit interface, running in its own container, that allows an auditor to:
+•	Review invoice reports and their discrepancies.
+•	Correct extracted values.
+•	Ask natural-language questions about processed invoices.
+•	Record feedback, which is stored permanently rather than overwriting the original extraction.
+4. Non-Functional Requirements
+Requirement	Expectation
+Performance	Efficient processing of invoice batches; expensive operations such as OCR and translation are performed once and reused.
+Scalability	Services are independently deployable. Be prepared to explain which service could be scaled horizontally and which could not.
+Durability	The audit trail and RAG index survive destruction and recreation of every container.
+Security	No credential appears in application source, in any Dockerfile, or in any built image layer.
+Reliability	A service that cannot reach its dependencies fails clearly and immediately rather than starting in a broken state.
+Usability	The dashboard is usable by a non-technical auditor.
+Maintainability	Modular agent design, documented configuration, reproducible build.
+
+5. Solution Architecture
+The system is deployed as six containers on a single user-defined bridge network created by Docker Compose. Services address each other by service name; no IP address is ever hard-coded. Figure 1 shows the deployed stack, the direction of every call between services, and which stores are durable.
+Service	Image / Build	Ports (host:container)	Responsibility
+agent	Build from Dockerfile	8000:8000	Runs the LangGraph workflow: monitor, extractor, translation, validation, reporting and RAG agents. Exposes a health endpoint.
+mock-erp	Build from Dockerfile	8001:8000	FastAPI service serving vendor, purchase order and SKU lookups from PostgreSQL.
+streamlit-ui	Build from Dockerfile	8501:8501	Human-in-the-loop dashboard. Reads reports from PostgreSQL and calls the agent for re-validation.
+postgres	postgres:16	5432:5432	Durable system of record. Holds agent checkpoints, ERP master data and the audit trail.
+qdrant	qdrant/qdrant	6333:6333	Vector database holding the RAG index. A derived store, rebuildable from PostgreSQL.
+redis	redis:7	6379:6379	Ephemeral cache for translation results and LLM responses.
+
+5.1  Processing Flow
+A single invoice moves through the system as follows:
+1.	The file arrives in the mounted incoming directory. The file itself never enters any database.
+2.	The monitor agent detects it, checksums it, and routes it by type.
+3.	The extractor produces raw text — directly for digital PDFs, via OCR for scans — and writes that text to PostgreSQL.
+4.	If same query is asked instead of hitting the LLM , same result for query is taken from redis.
+5.	Structured fields are parsed into typed columns; line items become their own rows.
+6.	The validation agent calls mock-erp over HTTP and writes discrepancies to PostgreSQL.
+7.	The reporting agent writes the recommendation to PostgreSQL and generates report files.
+8.	The indexing agent chunks the stored text, embeds it, and writes vectors to Qdrant.
+Queries take a much shorter path. Structured questions are answered directly from PostgreSQL with SQL. Only open-ended questions go through Qdrant retrieval and generation. Nothing is re-extracted at query time.
+Note on LiteLLM: LiteLLM runs as an in-process library in this build rather than a separate container. In production it would run as its own gateway service so that rate limiting, cost tracking and credential handling are centralised. Be prepared to explain this trade-off.
+The architecture below is the target you are building towards. Read it before writing any Dockerfile: it fixes the service names, the ports, and which store each service is allowed to touch.
+ 
+Figure 1 — Deployed architecture of the AI Invoice Auditor stack. Six containers on one Compose-created bridge network, with AWS Bedrock as the only external dependency.
+How to read Figure 1
+The dashed outer boundary is the network Compose creates for you. Everything inside it resolves each other by service name. Anything crossing that boundary — the auditor's browser, and AWS Bedrock — is outside your stack and is reached differently.
+•	Solid arrows are a request expecting a response. The agent calls mock-erp over HTTP and waits for the purchase order back.
+•	Dashed arrows are a data read or write, or a call to an external API. These are the connections that need a hostname and credentials supplied at run time.
+•	Colour marks durability rather than importance. The two stores drawn with a named volume survive a teardown; the one without a volume does not, and is designed not to need one.
+Three features of the picture are the design decisions being assessed, and each will cost marks if your implementation contradicts it.
+•	The agent is the only service that writes application data. mock-erp reads the erp schema and serves it over HTTP; streamlit-ui reads the audit schema and calls the agent when something must change. Keeping writes in one place is what makes the audit trail trustworthy.
+•	mock-erp is the only route to ERP data. Both the agent and the UI can technically reach PostgreSQL directly, because all three schemas live in one instance. Querying the erp schema from outside mock-erp collapses the service boundary and makes the ERP service pointless.
+•	Qdrant points back to PostgreSQL, not the other way round. The vector index is derived from text already stored in PostgreSQL, so losing the Qdrant volume is a rebuild rather than data loss. Verification Checks 3 and 4 test exactly this distinction.
+The port pairs in the diagram are worth reading carefully. The value on the left of the arrow is the host port, reachable from your browser; the value on the right is the container port, which is what other containers must use. mock-erp is published on host port 8001 but is addressed internally as mock-erp:8000, and confusing the two is the single most common cause of a connection failure in this stack.
+
+
+
+6. Data Architecture
+Four stores are involved. Deciding what belongs in each — and which service owns it — is the central design decision of this project. A stack that runs but places data incorrectly is not architecturally sound and will not receive full marks.
+Store	Holds	Survives teardown?
+Filesystem (volume)	The original invoice files and generated report files.	Yes, while the volume exists.
+PostgreSQL	Agent checkpoints, ERP master data, the complete audit trail.	Yes — named volume required.
+Qdrant	Vector embeddings and their chunk payloads.	Yes — named volume required.
+Redis	LLM response caches.	No, and it must not need to.
+
+6.1  Where the Invoice File Itself Goes
+The PDF, DOCX or PNG binary is never stored in PostgreSQL. Binary blobs in a relational database are an antipattern; production systems place them in object storage and keep a reference in the database. Here the file stays on the mounted volume and the database stores its path and checksum.
+
+
+
+Everything read out of the file does go into PostgreSQL, in three different forms:
+Form	Column type	Example
+Unstructured text	TEXT	The complete extracted text of the invoice as a single value, newlines and all. No schema describes its contents.
+Structured fields	Typed columns	invoice_number VARCHAR, invoice_date DATE, total_amount NUMERIC(14,2). These exist because you will filter, sort and sum on them.
+Variable extras	JSONB	Format-specific fields that do not justify a column of their own, such as a vendor's custom reference or a country-specific tax breakdown.
+
+A fixed schema does not mean every invoice must have every field. A column that has no value is simply NULL. Declaring a schema means deciding in advance which fields are possible, not requiring that all of them are present.
+6.2  PostgreSQL: Three Schemas, One Database
+Create three schemas inside a single database rather than three separate databases. One connection string, clear ownership boundaries, and it mirrors how a real team separates concerns without provisioning separate servers.
+Schema	Owner	Contents	Who designs it
+langgraph	agent	checkpoints, checkpoint_blobs, checkpoint_writes, thread. Serialized graph state used to resume a paused workflow.	Created automatically by the LangGraph PostgreSQL checkpointer.
+erp	mock-erp	vendors, purchase_orders, po_line_items, sku_master.	Provided to you in erp_schema.sql.
+audit	agent writes, streamlit-ui reads	invoice_audit, invoice_line_items, discrepancies, human_feedback.	You design these tables.
+
+Why an audit schema when LangGraph already checkpoints everything
+LangGraph checkpoints are msgpack binary blobs. They exist so that a paused workflow can resume — they are working memory, not a business record. You cannot answer "show me every invoice from vendor V001 rejected last month" against a serialized blob; that needs typed columns and indexes. The two stores have different purposes and different lifetimes: checkpoints may be pruned once a workflow completes, the audit trail never is.
+Suggested audit schema
+The following is a starting point, not a specification. You are expected to adapt it, but the marked capabilities below must be present.
+CREATE SCHEMA IF NOT EXISTS audit;
+
+CREATE TABLE audit.invoice_audit (
+    invoice_id             UUID PRIMARY KEY,
+    file_path              VARCHAR(512),      -- reference, not the file
+    file_checksum          VARCHAR(64) UNIQUE,-- detects reprocessing
+    extraction_method      VARCHAR(32),       -- pdfplumber | docx | tesseract
+    raw_extracted_text     TEXT,              -- full text, pre-translation
+    translated_text        TEXT,
+    source_language        VARCHAR(8),
+    translation_confidence NUMERIC(4,3),
+    invoice_number         VARCHAR(64),
+    vendor_name            VARCHAR(255),
+    po_number              VARCHAR(64),
+    invoice_date           DATE,
+    currency               CHAR(3),
+    total_amount           NUMERIC(14,2),
+    validation_status      VARCHAR(32),       -- passed | failed | partial
+    recommendation         VARCHAR(32),       -- approve | review | reject
+    extracted_raw          JSONB,             -- variable leftovers
+    thread_id              VARCHAR(128),      -- links to langgraph state
+    processed_at           TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE audit.invoice_line_items (
+    id           BIGSERIAL PRIMARY KEY,
+    invoice_id   UUID REFERENCES audit.invoice_audit(invoice_id),
+    line_number  INTEGER,
+    item_code    VARCHAR(64),
+    description  TEXT,
+    quantity     NUMERIC(12,3),
+    unit_price   NUMERIC(14,4),
+    line_total   NUMERIC(14,2)
+);
+
+CREATE TABLE audit.discrepancies (
+    id            BIGSERIAL PRIMARY KEY,
+    invoice_id    UUID REFERENCES audit.invoice_audit(invoice_id),
+    field_name    VARCHAR(64),
+    invoice_value TEXT,
+    erp_value     TEXT,
+    deviation_pct NUMERIC(8,4),
+    severity      VARCHAR(16),
+    detected_at   TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE audit.human_feedback (
+    id               BIGSERIAL PRIMARY KEY,
+    invoice_id       UUID REFERENCES audit.invoice_audit(invoice_id),
+    field_name       VARCHAR(64),
+    original_value   TEXT,
+    corrected_value  TEXT,
+    corrected_by     VARCHAR(128),
+    corrected_at     TIMESTAMPTZ DEFAULT now(),
+    revalidated      BOOLEAN DEFAULT FALSE
+);
+
+Required capabilities, regardless of how you name things:
+•	Line items are separate rows in their own table, not an array or JSON blob inside the invoice row.
+•	A human correction is an INSERT into human_feedback, never an UPDATE that overwrites the original extracted value.
+•	Monetary values use NUMERIC, not floating point. Floats lose cents.
+•	Dates use DATE or TIMESTAMPTZ so that range queries work without casting.
+•	The raw extracted text is retained.
+Coming from a document database: In a document store you would nest line items inside the invoice document. PostgreSQL does not nest — line items become rows in a second table linked by invoice_id, and you join to bring them back together. This is not a limitation here: invoice validation is fundamentally the comparison of two relational structures, invoice lines against purchase order lines, which is exactly what a join does.
+6.3  Qdrant: A Derived Index
+Create a single collection. Alongside each vector, store a payload containing at minimum:
+Payload field	Purpose
+invoice_id	Allows retrieval to be filtered to one invoice. Without it, a question about a specific invoice searches the entire corpus.
+chunk_text	The text the vector was produced from, returned to the generation step as context.
+source_type	Distinguishes invoice text from report text. A question about why an invoice was flagged is answered by the report, not the invoice.
+vendor	Supports vendor-scoped questions such as recurring discrepancy patterns.
+language	Supports filtering and diagnosis of extraction quality.
+
+Qdrant is built from PostgreSQL and never the other way round. Because the source text is already persisted, losing the Qdrant volume is a rebuild — re-chunk, re-embed, repopulate — not data loss. No OCR is repeated and no invoice is re-read.
+6.4  Redis: Disposable by Design
+Cache only values that can be recomputed, each with an expiry:
+ llm:{sha256(prompt)}                ->  cached model response
+
+The test for whether something belongs in Redis: if the cache is flushed, does anything break, or does the system merely become slower? Only the second case belongs in Redis. Agent state, audit records and the vector index all fail this test and must have a durable home elsewhere.
+6.5  Service Addresses Inside the Network
+Every value below is a host name created by Compose from the service name. These use the container port, not the host port — the host mapping is irrelevant to traffic between containers.
+From	To	Address	Common mistake
+agent	postgres	postgres:5432	Using localhost, which refers to the agent container itself.
+agent	qdrant	qdrant:6333	Using an IP from docker inspect, which changes on restart.
+agent	redis	redis:6379	Assuming the host port mapping applies between containers.
+agent	mock-erp	mock-erp:8000	Using 8001, which is the host mapping, not the container port.
+streamlit-ui	agent	agent:8000	Calling localhost:8000 from inside the UI container.
+your browser	streamlit-ui	localhost:8501	Expecting a service name to resolve from the host.
+
+7. Implementation Details
+7.1  Technology Stack
+Layer	Tool
+Agent framework	LangGraph, LangChain
+LLM gateway	LiteLLM (in-process)
+Models	AWS Bedrock — Nova Lite, Cohere Command R+
+API services	FastAPI, Uvicorn, Pydantic
+OCR and parsing	Tesseract, Poppler, pdfplumber, python-docx
+Vector DB	Qdrant
+Relational DB	PostgreSQL 16
+Cache	Redis 7
+UI	Streamlit
+Containerization	Docker, Docker Compose v2
+Base image	python:3.11-slim (pinned)
+Config	YAML persona and rules files
+
+7.2  Model Selection
+Task	Model	Reason
+Reasoning and summarization	Nova Lite	Efficient for structured reasoning and report generation.
+RAG generation	Cohere Command R+	Optimised for retrieval-augmented generation.
+Translation	Cohere Command R+	Handles multilingual translation natively.
+
+7.3  Agent Specification
+Agent	Function	Uses LLM
+Invoice Monitor	Detects and routes new files; checksums against the audit trail.	No
+Extractor	Parses PDF, DOCX and images; falls back to OCR when needed.	No
+Translation	Detects language, translates to English, caches results.	Yes
+Invoice Data Validation	Checks completeness, totals and tax arithmetic against rules.yaml.	Yes
+Business Validation	Compares invoice data to ERP records via the mock-erp API.	Yes
+Reporting	Produces discrepancy report and recommendation; persists the outcome.	Yes
+RAG agents	Indexing, retrieval, augmentation, generation and reflection.	Yes
+
+8. Containerization Requirements
+You author three Dockerfiles and the complete compose.yaml. The infrastructure services use official images and require no Dockerfile. The requirements below define what your files must achieve; the implementation is yours to determine.
+8.1  Common Dockerfile Requirements
+•	Base image pinned to an explicit version. The latest tag is not acceptable.
+•	Layers ordered so that editing application source does not trigger a reinstall of Python dependencies.
+•	A .dockerignore present, excluding at minimum .env, __pycache__/, *.pyc, .git/ and any local virtual environment.
+•	No credentials, API keys or .env contents in any image layer. Verified with docker history.
+•	The default command runs a long-lived foreground process, not a script that exits.
+•	The container runs as an unprivileged user, not root.
+•	Logs are written to stdout and stderr, never to files inside the container.
+•	Images are tagged explicitly, for example my-agent:1.0.
+8.2  agent Dockerfile
+Requirement	Detail
+System packages	OCR and PDF handling require binaries installed through the OS package manager — Tesseract plus the language packs the dataset actually needs, and Poppler utilities for PDF rendering.
+Language packs	The dataset includes non-English invoices. English-only OCR will fail on them. Determine which packs you require and install those.
+Python dependencies	LangGraph, LangChain, LiteLLM, FastAPI, Pydantic, pdfplumber, python-docx, pytesseract, the Qdrant client and a PostgreSQL driver.
+Image size	Keep the final image under approximately 1.5 GB. Clean package manager caches within the same layer that creates them.
+Entry point	A long-running server exposing the agent workflow and a health endpoint on container port 8000.
+
+Ordering hint: Installing system packages, installing Python dependencies and copying application code are three concerns that change at very different rates. Order them accordingly.
+8.3  mock-erp and streamlit-ui Dockerfiles
+mock-erp:
+•	Slim Python base; no OCR or document parsing dependencies.
+•	FastAPI, Uvicorn, Pydantic and a PostgreSQL driver only.
+•	Serves on container port 8000, published on host port 8001.
+•	Database credentials arrive from the environment at runtime.
+streamlit-ui:
+•	Slim Python base; Streamlit, an HTTP client and a PostgreSQL driver.
+•	Must bind to 0.0.0.0, not localhost, or it will be unreachable from the host.
+•	Serves on container port 8501.
+•	Reads reports from PostgreSQL and calls the agent by service name.
+8.4  Compose Requirements
+Requirement	Applies to	Detail
+Single-command startup	All	docker compose up --build -d must bring the entire stack to a working state with no manual follow-up.
+Named volumes	postgres, qdrant	Declared at top level and mounted at each service's data directory. Data survives docker compose down.
+Health checks	postgres, qdrant, redis	Each must verify the service is genuinely ready to accept connections, not merely started.
+Dependency conditions	agent, mock-erp, streamlit-ui	Application services wait for dependencies to report healthy. depends_on alone is not sufficient and will cause connection failures.
+Runtime secrets	agent, mock-erp, streamlit-ui	AWS credentials and database passwords supplied via env_file. No secrets in compose.yaml or in any image.
+Service-name networking	All	Services address each other by service name. Hard-coded IPs or localhost references between containers are not acceptable.
+Schema initialisation	postgres	erp_schema.sql must load automatically on first start. A stack requiring a manual load step has not met the single-command requirement.
+Restart policy	All	Set a policy appropriate to each service. Be prepared to explain why a restart policy does not fix a mis-ordered startup.
+Invoice input	agent	The incoming directory must be reachable inside the container. This is a development convenience; be prepared to explain why object storage would be used in production.
+
+Common failure: A service that starts before its database is ready will exit, and a restart policy will hide this by looping indefinitely. The container appears in docker ps while doing no useful work. Use docker compose logs to confirm each service actually reached a running state.
+8.5  Recommended Build Sequence
+Do not write all four files and then run everything at once. When six services fail together the cause is almost impossible to isolate. Build up one piece at a time.
+9.	Build mock-erp first — smallest dependency set, no system packages. Then streamlit-ui. Then agent.
+10.	For each image: write .dockerignore, build with an explicit tag, check the size, inspect layers with docker history, run it standalone, and confirm it serves before moving on.
+11.	Determine the agent's system packages in a throwaway interactive container rather than by rebuilding the image repeatedly.
+12.	Start infrastructure only: docker compose up -d postgres qdrant redis. Confirm all three report healthy.
+13.	Confirm the ERP schema loaded and is populated.
+14.	Add mock-erp, then agent, then streamlit-ui, verifying each before the next.
+15.	Finally, prove a clean start: docker compose down -v followed by docker compose up --build -d.
+8.6  Diagnostic Commands
+Command	Tells you
+docker compose ps	Which services are up and which are actually healthy. Running is not the same as working.
+docker compose logs -f <service>	Why a service exited or is looping. The first command to reach for.
+docker compose exec <service> env	Which environment variables actually reached the container.
+docker compose exec agent getent hosts postgres	Whether a service name resolves from inside the container.
+docker compose config	The fully resolved compose file with variables substituted. Reveals typos before you run anything.
+docker history <image> --no-trunc	Every layer and the command that created it. Used to prove no secret was baked in.
+docker system df	Disk consumed by images, containers, volumes and build cache.
+
+
+9. Verification Checklist
+Complete every check below before your demonstration. Checks 3 and 4 are the primary evidence that the stack is genuinely production-shaped rather than merely running.
+Check 1 — Single-command startup
+From a clean state, the full stack starts and all six services report healthy.
+docker compose down -v
+docker compose up --build -d
+docker compose ps
+
+Check 2 — End-to-end processing
+Place an invoice in the incoming directory. Confirm it is extracted, translated, validated against the ERP service, and that a report is produced and stored in PostgreSQL.
+Check 3 — Persistence across restart
+Process at least one invoice and index it for RAG, then destroy and recreate the stack without removing volumes.
+docker compose down          # containers destroyed, volumes retained
+docker compose up -d
+
+After restart, and without reprocessing anything, demonstrate that the audit trail is intact and the RAG interface still answers questions about the previously indexed invoice.
+Check 4 — Deliberate data loss
+Show the inverse, to prove the persistence in Check 3 was real and not incidental.
+docker compose down -v       # volumes deleted
+docker compose up -d
+
+Confirm the audit trail and RAG index are now empty, and explain which flag caused the difference.
+Check 5 — No secrets in images
+docker history <your-image>:<tag> --no-trunc
+
+Check 6 — Service-name resolution
+From inside the agent container, confirm PostgreSQL, Qdrant and the ERP service all resolve by service name rather than by IP address.
+docker compose exec agent bash
+
+10. Deliverables
+•	Source code, including three Dockerfiles, three .dockerignore files and compose.yaml.
+•	Your audit schema definition.
+•	A README documenting how to configure .env and start the stack from a clean checkout.
+•	Working demonstration covering all six verification checks.
+•	Presentation slides, not exceeding five, including one architecture diagram of the deployed stack.
+•	Prompt templates and persona files (.yaml / .json).
+Do not submit: Your .env file, or any file containing real credentials. Submitting live keys is treated as a security failure regardless of the quality of the rest of the work.
+11. Evaluation Criteria (50 Marks)
+Component	Weightage
+Functional completeness	25%
+RAG and agentic integration	25%
+Containerization and deployment	25%
+Code quality and modularity	15%
+UI and human-in-the-loop	10%
+
+11.1  Containerization Breakdown
+Criterion	Marks	Evidence
+Full stack runs from a single command	10%	Check 1. All six services healthy, no manual steps.
+Dockerfile quality	10%	Correct layer ordering, pinned base image, .dockerignore present, non-root user, no secrets in any layer (Check 5).
+Persistence correctly configured	5%	Checks 3 and 4. Data survives down, is lost on down -v, and the team can explain why.
+
+A stack that runs but loses its audit trail on restart will not receive persistence marks. A stack with credentials baked into an image will not receive Dockerfile marks, irrespective of layer quality.

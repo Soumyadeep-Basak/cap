@@ -32,7 +32,7 @@ redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
 def _cache_key(question: str, context: str) -> str:
     """Build a cache key that changes with the model, question, or context."""
-    content = f"rag-generation-v1|{BEDROCK_RAG_MODEL_ID}|{question}|{context}"
+    content = f"rag-generation-v2|{BEDROCK_RAG_MODEL_ID}|{question}|{context}"
     digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
     return f"llm:{digest}"
 

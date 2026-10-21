@@ -20,9 +20,9 @@ The fixes keep both execution branches and the Agent API contract intact. SQL fa
 ## `agent/src/invoice_auditor/agents/rag_agents/generation_agent.py`
 
 - **Purpose:** Generates grounded answers and caches them by question and context.
-- **Changes made:** Bumped the generation cache-key version.
-- **Reason:** Prevents cached pre-prompt-change answers from bypassing the updated readability and citation instructions.
-- **Impact:** Only RAG cache identity changes; retrieval, generation sequence, and evaluation are unchanged.
+- **Changes made:** Bumped the generation cache-key version and routed generation through LangChain's `ChatLiteLLM` adapter.
+- **Reason:** Refreshes answers after prompt changes and uses LiteLLM behind LangChain's chat model interface.
+- **Impact:** Keeps existing Redis caching and generation graph while aligning its Bedrock model call with the LiteLLM path.
 - **Verification:** Python compilation passed. Live cache/model behavior was not exercised.
 
 ## `config/rag_prompts.yaml`
@@ -53,14 +53,14 @@ The fixes keep both execution branches and the Agent API contract intact. SQL fa
 ## `agent/src/invoice_auditor/workflows/input_guardrail.py`
 
 - **Purpose:** Checks each incoming question before it reaches the SQL or RAG workflow.
-- **Changes made:** Added a dedicated LangGraph input check using `ChatBedrockConverse`; it returns a safety decision from a constrained JSON prompt and fails closed if the check errors or returns invalid data.
+- **Changes made:** Added a dedicated LangGraph input check using `ChatLiteLLM`; it returns a safety decision from a constrained JSON prompt and fails closed if the check errors or returns invalid data.
 - **Reason:** Adds the requested harmful-request and safeguard-bypass check as a separate workflow module.
 - **Impact:** Unsafe or uncheckable requests stop before classification, retrieval, or SQL execution; safe requests continue through the existing graph.
 - **Verification:** Syntax compilation and mocked safe/unsafe/error parsing checks passed. No live Bedrock call was made.
 
 ## `agent/src/invoice_auditor/workflows/rag_workflow.py`
 
-- **Additional changes made:** Calls the guardrail before classification and adds a blocked response path. Replaced the direct boto3 Converse client with `ChatBedrockConverse`.
+- **Additional changes made:** Calls the guardrail before classification and adds a blocked response path. Uses `ChatLiteLLM` for classification and SQL-generation prompts.
 - **Impact:** Guardrail metadata is returned through the existing API fields; SQL/RAG routing only runs after the guardrail accepts the prompt.
 - **Verification:** Syntax compilation passed; mocked guardrail behavior and graph wiring checks passed. Live database/model integration was not run.
 
@@ -75,7 +75,7 @@ The fixes keep both execution branches and the Agent API contract intact. SQL fa
 ## `agent/src/invoice_auditor/agents/translation_agent.py`
 
 - **Purpose:** Detects invoice language and translates extracted invoice text.
-- **Changes made:** Replaced its direct boto3 Converse call with `ChatBedrockConverse` while retaining the model IDs, region, temperature, token limit, JSON parsing, and translation flow.
+- **Changes made:** Replaced its direct boto3 Converse call with `ChatBedrockConverse` while retaining model IDs, region, temperature, token limit, JSON parsing, and translation flow.
 - **Reason:** Removes direct boto usage as requested.
 - **Impact:** Translation uses the LangChain AWS integration with the same model configuration and output parsing.
 - **Verification:** Syntax compilation passed; no live Bedrock call was made.
@@ -83,7 +83,7 @@ The fixes keep both execution branches and the Agent API contract intact. SQL fa
 ## `agent/src/invoice_auditor/agents/rag_agents/reflection_agent.py`
 
 - **Purpose:** Evaluates generated RAG answers with the RAG Triad.
-- **Changes made:** Replaced its direct boto3 Converse call with `ChatBedrockConverse`, retaining the score parsing and configured threshold.
+- **Changes made:** Uses LangChain's `ChatLiteLLM` adapter, routing reflection through LiteLLM while retaining score parsing and the configured threshold.
 - **Reason:** Removes direct boto usage without changing the evaluation logic.
 - **Impact:** RAG evaluation remains on the existing path and keeps its scoring contract.
 - **Verification:** Syntax compilation passed; no live Bedrock call was made.
@@ -99,9 +99,9 @@ The fixes keep both execution branches and the Agent API contract intact. SQL fa
 ## `agent/requirements.txt`
 
 - **Purpose:** Declares the agent service's Python dependencies.
-- **Changes made:** Added `langchain-aws` and removed the direct `boto3` dependency.
-- **Reason:** Declares the integration package used by the migrated call sites; its AWS SDK dependency is transitive.
-- **Impact:** Agent installs now include LangChain AWS integrations.
+- **Changes made:** Added `langchain-aws` and `langchain-litellm`; removed the direct `boto3` dependency.
+- **Reason:** Declares the integrations used by agent model and embedding calls; AWS SDK dependencies are transitive.
+- **Impact:** Agent installs include LangChain AWS integrations for translation/embeddings and a LangChain wrapper for LiteLLM chat calls.
 - **Verification:** Dependency installation/resolution was not run in this environment.
 
 ## `streamlit-ui/src/invoice_auditor_ui/app.py`
@@ -120,3 +120,9 @@ The fixes keep both execution branches and the Agent API contract intact. SQL fa
 
 - Follow-up verification: `python -m compileall -q agent/src/invoice_auditor streamlit-ui/src/invoice_auditor_ui` passed; mocked safe/unsafe/invalid guardrail responses passed; source-level graph checks verified the guardrail is first and has accepted/blocked branches; `rg` found no direct boto3 imports or calls in agent Python files; `git diff --check` passed.
 - Runtime limitation: dependency installation and real AWS/DB/Qdrant integration were not run, so LangChain AWS model and embedding calls were not live-tested.
+
+# LiteLLM routing follow-up
+
+- Generation already used LiteLLM directly. Generation, reflection, query classification/SQL generation, and the input guardrail now use LangChain's `ChatLiteLLM` interface with LiteLLM's Bedrock provider. Translation and embeddings continue to use LangChain AWS.
+- `langchain-litellm` was added as the LangChain adapter dependency. No live inference request was run.
+- The local environment does not have `langchain_litellm` installed, so the adapter import/invocation could not be runtime-tested. Install the updated `agent/requirements.txt` before running the agent; live AWS credentials/services are also required for integration verification.

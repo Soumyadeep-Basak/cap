@@ -12,8 +12,8 @@ import hashlib
 import logging
 from typing import Any
 
-import litellm
 import redis
+from langchain_litellm import ChatLiteLLM
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
@@ -32,7 +32,7 @@ redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
 def _cache_key(question: str, context: str) -> str:
     """Build a cache key that changes with the model, question, or context."""
-    content = f"rag-generation-v2|{BEDROCK_RAG_MODEL_ID}|{question}|{context}"
+    content = f"rag-generation-v3|{BEDROCK_RAG_MODEL_ID}|{question}|{context}"
     digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
     return f"llm:{digest}"
 
@@ -85,18 +85,25 @@ def generate_answer_node(state: GenerationState) -> dict[str, Any]:
         )
 
     try:
-        response = litellm.completion(
+        model = ChatLiteLLM(
             model=f"bedrock/{BEDROCK_RAG_MODEL_ID}",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            max_tokens=1024,
             temperature=0.0,
-            aws_region_name=AWS_REGION,
+            max_tokens=1024,
+            model_kwargs={"aws_region_name": AWS_REGION},
         )
 
-        answer = response["choices"][0]["message"]["content"].strip()
+        response = model.invoke(
+            [("system", system_prompt), ("human", user_prompt)]
+        )
+        content = response.content
+        if isinstance(content, list):
+            answer = "".join(
+                block.get("text", "")
+                for block in content
+                if isinstance(block, dict)
+            ).strip()
+        else:
+            answer = str(content).strip()
 
         try:
             redis_client.set(cache_key, answer, ex=LLM_CACHE_TTL_SECONDS)

@@ -14,7 +14,7 @@ import logging
 import re
 from typing import Any
 
-from langchain_aws import ChatBedrockConverse
+from langchain_litellm import ChatLiteLLM
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
@@ -77,11 +77,11 @@ def score_answer_node(state: ReflectionState) -> dict[str, Any]:
     )
 
     try:
-        model = ChatBedrockConverse(
-            model=BEDROCK_RAG_MODEL_ID,
-            region_name=AWS_REGION,
+        model = ChatLiteLLM(
+            model=f"bedrock/{BEDROCK_RAG_MODEL_ID}",
             temperature=0.0,
             max_tokens=512,
+            model_kwargs={"aws_region_name": AWS_REGION},
         )
         response = model.invoke(
             [("system", system_prompt), ("human", user_prompt)]

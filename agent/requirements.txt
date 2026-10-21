@@ -11,6 +11,7 @@ pdf2image
 langgraph>=1.0,<2.0
 langchain>=1.0,<2.0
 langchain-aws>=0.2,<2.0
+langchain-litellm>=0.6,<1.0
 langchain-text-splitters>=1.0,<2.0
 
 # LLM access (Bedrock) and multi-provider completion

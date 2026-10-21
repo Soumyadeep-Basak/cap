@@ -26,7 +26,7 @@ import logging
 import re
 from typing import Any
 
-from langchain_aws import ChatBedrockConverse
+from langchain_litellm import ChatLiteLLM
 from langgraph.graph import END, START, StateGraph
 
 from invoice_auditor.agents.rag_agents.augmentation_agent import (
@@ -61,11 +61,11 @@ def _invoke_bedrock_json(
     user_prompt: str,
 ) -> dict[str, Any]:
     """Invoke a Bedrock Converse model and parse its JSON response."""
-    model = ChatBedrockConverse(
-        model=model_id,
-        region_name=AWS_REGION,
+    model = ChatLiteLLM(
+        model=f"bedrock/{model_id}",
         temperature=0.0,
         max_tokens=1024,
+        model_kwargs={"aws_region_name": AWS_REGION},
     )
     response = model.invoke(
         [("system", system_prompt), ("human", user_prompt)]

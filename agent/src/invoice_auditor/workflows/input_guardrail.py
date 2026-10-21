@@ -6,7 +6,7 @@ import json
 import re
 from typing import Any
 
-from langchain_aws import ChatBedrockConverse
+from langchain_litellm import ChatLiteLLM
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
@@ -37,11 +37,11 @@ def check_input_node(state: InputGuardrailState) -> dict[str, Any]:
         return {"is_safe": True, "guardrail_error": None}
 
     try:
-        model = ChatBedrockConverse(
-            model=BEDROCK_RAG_MODEL_ID,
-            region_name=AWS_REGION,
+        model = ChatLiteLLM(
+            model=f"bedrock/{BEDROCK_RAG_MODEL_ID}",
             temperature=0.0,
             max_tokens=256,
+            model_kwargs={"aws_region_name": AWS_REGION},
         )
         response = model.invoke(
             [

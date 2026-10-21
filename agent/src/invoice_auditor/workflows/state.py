@@ -84,8 +84,12 @@ class RagQueryState(TypedDict, total=False):
     question: str
     invoice_id: str | None
 
+    # Input safety check
+    guardrail_safe: bool
+    guardrail_error: str | None
+
     # Query classification
-    query_type: Literal["structured", "unstructured"]
+    query_type: Literal["structured", "unstructured", "blocked"]
 
     # Structured (text-to-SQL) path
     generated_sql: str | None
@@ -114,6 +118,6 @@ class RagQueryState(TypedDict, total=False):
 
     # Output
     answer: str
-    answer_source: Literal["sql", "rag", "cache"]
+    answer_source: Literal["sql", "rag", "cache", "guardrail"]
     query_status: Literal["completed", "failed"]
     query_error: str | None

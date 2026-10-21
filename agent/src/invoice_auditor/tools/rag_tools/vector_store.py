@@ -8,12 +8,11 @@ information; it only requires rechunking and re-embedding stored text.
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from typing import Any
 
-import boto3
+from langchain_aws import BedrockEmbeddings
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
 
@@ -30,8 +29,8 @@ logger = logging.getLogger(__name__)
 # embeddings (v1) produce 1536-dimension vectors.
 EMBEDDING_DIMENSIONS = 1536
 
-_bedrock_client = boto3.client(
-    "bedrock-runtime",
+_embeddings = BedrockEmbeddings(
+    model_id=BEDROCK_EMBEDDING_MODEL_ID,
     region_name=AWS_REGION,
 )
 
@@ -43,14 +42,7 @@ def embed_text(text: str) -> list[float]:
     if not text or not text.strip():
         raise ValueError("Cannot embed empty text")
 
-    response = _bedrock_client.invoke_model(
-        modelId=BEDROCK_EMBEDDING_MODEL_ID,
-        body=json.dumps({"inputText": text}),
-    )
-
-    payload = json.loads(response["body"].read())
-    embedding = payload.get("embedding")
-
+    embedding = _embeddings.embed_query(text)
     if not embedding:
         raise ValueError(
             "Bedrock embedding response did not contain a vector"

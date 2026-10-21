@@ -110,6 +110,16 @@ st.markdown(
         min-height: 40px;
         border: 1px solid #d5dee9;
       }
+      [data-testid="stSidebar"] .stButton > button {
+        background: var(--navy-soft);
+        border-color: #54708f;
+        color: #ffffff;
+      }
+      [data-testid="stSidebar"] .stButton > button:hover {
+        background: var(--teal);
+        border-color: var(--teal);
+        color: #ffffff;
+      }
       .stButton > button[kind="primary"],
       .stFormSubmitButton > button[kind="primary"] {
         background: var(--teal);

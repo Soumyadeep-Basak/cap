@@ -14,7 +14,7 @@ import logging
 import re
 from typing import Any
 
-import boto3
+from langchain_aws import ChatBedrockConverse
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
@@ -26,9 +26,6 @@ from invoice_auditor.config import (
 )
 
 logger = logging.getLogger(__name__)
-
-bedrock_client = boto3.client("bedrock-runtime", region_name=AWS_REGION)
-
 
 class ReflectionState(TypedDict, total=False):
     """Inputs and outputs for the Reflection Agent."""
@@ -80,19 +77,24 @@ def score_answer_node(state: ReflectionState) -> dict[str, Any]:
     )
 
     try:
-        response = bedrock_client.converse(
-            modelId=BEDROCK_RAG_MODEL_ID,
-            system=[{"text": system_prompt}],
-            messages=[
-                {"role": "user", "content": [{"text": user_prompt}]}
-            ],
-            inferenceConfig={"temperature": 0.0, "maxTokens": 512},
+        model = ChatBedrockConverse(
+            model=BEDROCK_RAG_MODEL_ID,
+            region_name=AWS_REGION,
+            temperature=0.0,
+            max_tokens=512,
         )
-
-        content = response["output"]["message"]["content"]
-        response_text = "".join(
-            block["text"] for block in content if "text" in block
-        ).strip()
+        response = model.invoke(
+            [("system", system_prompt), ("human", user_prompt)]
+        )
+        content = response.content
+        if isinstance(content, list):
+            response_text = "".join(
+                block.get("text", "")
+                for block in content
+                if isinstance(block, dict)
+            ).strip()
+        else:
+            response_text = str(content).strip()
 
         response_text = re.sub(
             r"^```(?:json)?\s*|\s*```$",

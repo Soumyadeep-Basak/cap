@@ -47,3 +47,76 @@ The fixes keep both execution branches and the Agent API contract intact. SQL fa
 - Focused source-level checks — passed for nested SQL formatting, null retention, invoice query routing, RAG evidence routing, and evaluation-aware finalization.
 - `git diff --check` — passed; Git emitted only line-ending normalization notices.
 - YAML parsing and full service integration — not run; PyYAML and running database/model/vector-store services were unavailable/not exercised.
+
+# Additional changes in this follow-up
+
+## `agent/src/invoice_auditor/workflows/input_guardrail.py`
+
+- **Purpose:** Checks each incoming question before it reaches the SQL or RAG workflow.
+- **Changes made:** Added a dedicated LangGraph input check using `ChatBedrockConverse`; it returns a safety decision from a constrained JSON prompt and fails closed if the check errors or returns invalid data.
+- **Reason:** Adds the requested harmful-request and safeguard-bypass check as a separate workflow module.
+- **Impact:** Unsafe or uncheckable requests stop before classification, retrieval, or SQL execution; safe requests continue through the existing graph.
+- **Verification:** Syntax compilation and mocked safe/unsafe/error parsing checks passed. No live Bedrock call was made.
+
+## `agent/src/invoice_auditor/workflows/rag_workflow.py`
+
+- **Additional changes made:** Calls the guardrail before classification and adds a blocked response path. Replaced the direct boto3 Converse client with `ChatBedrockConverse`.
+- **Impact:** Guardrail metadata is returned through the existing API fields; SQL/RAG routing only runs after the guardrail accepts the prompt.
+- **Verification:** Syntax compilation passed; mocked guardrail behavior and graph wiring checks passed. Live database/model integration was not run.
+
+## `agent/src/invoice_auditor/workflows/state.py`
+
+- **Purpose:** Defines shared state fields for LangGraph workflows.
+- **Changes made:** Added input guardrail state and the `blocked`/`guardrail` metadata values.
+- **Reason:** Keeps the workflow state contract typed for the new response path.
+- **Impact:** Adds metadata values for blocked inputs; existing SQL/RAG values remain supported.
+- **Verification:** Syntax compilation passed.
+
+## `agent/src/invoice_auditor/agents/translation_agent.py`
+
+- **Purpose:** Detects invoice language and translates extracted invoice text.
+- **Changes made:** Replaced its direct boto3 Converse call with `ChatBedrockConverse` while retaining the model IDs, region, temperature, token limit, JSON parsing, and translation flow.
+- **Reason:** Removes direct boto usage as requested.
+- **Impact:** Translation uses the LangChain AWS integration with the same model configuration and output parsing.
+- **Verification:** Syntax compilation passed; no live Bedrock call was made.
+
+## `agent/src/invoice_auditor/agents/rag_agents/reflection_agent.py`
+
+- **Purpose:** Evaluates generated RAG answers with the RAG Triad.
+- **Changes made:** Replaced its direct boto3 Converse call with `ChatBedrockConverse`, retaining the score parsing and configured threshold.
+- **Reason:** Removes direct boto usage without changing the evaluation logic.
+- **Impact:** RAG evaluation remains on the existing path and keeps its scoring contract.
+- **Verification:** Syntax compilation passed; no live Bedrock call was made.
+
+## `agent/src/invoice_auditor/tools/rag_tools/vector_store.py`
+
+- **Purpose:** Creates embeddings and stores/retrieves invoice chunks in Qdrant.
+- **Changes made:** Replaced direct boto3 model invocation and response parsing with `BedrockEmbeddings.embed_query`.
+- **Reason:** Removes the remaining direct boto embedding call.
+- **Impact:** The Qdrant interface and configured embedding model remain unchanged.
+- **Verification:** Syntax compilation passed; live embedding/Qdrant calls were not made.
+
+## `agent/requirements.txt`
+
+- **Purpose:** Declares the agent service's Python dependencies.
+- **Changes made:** Added `langchain-aws` and removed the direct `boto3` dependency.
+- **Reason:** Declares the integration package used by the migrated call sites; its AWS SDK dependency is transitive.
+- **Impact:** Agent installs now include LangChain AWS integrations.
+- **Verification:** Dependency installation/resolution was not run in this environment.
+
+## `streamlit-ui/src/invoice_auditor_ui/app.py`
+
+- **Purpose:** Renders the Streamlit auditor dashboard.
+- **Changes made:** Added idle and hover background/text colors for the sidebar refresh button.
+- **Reason:** Fixes the low-contrast button state reported before interaction.
+- **Impact:** Visual-only sidebar styling.
+- **Verification:** CSS was reviewed; no live browser visual check was run.
+
+## Result limit guidance (not changed)
+
+- The generated SQL `LIMIT` behavior is instructed in `config/rag_prompts.yaml` under `text_to_sql` (including the example query near the end of that section).
+- `agent/src/invoice_auditor/tools/sql_tools.py` defines `MAX_ROW_LIMIT` as a safety fallback only when generated SQL has no `LIMIT`.
+- For a meaningful top result/top N, the SQL needs an explicit ordering and `LIMIT N`; changing `MAX_ROW_LIMIT` alone does not sort or limit a query that already has a smaller generated `LIMIT`.
+
+- Follow-up verification: `python -m compileall -q agent/src/invoice_auditor streamlit-ui/src/invoice_auditor_ui` passed; mocked safe/unsafe/invalid guardrail responses passed; source-level graph checks verified the guardrail is first and has accepted/blocked branches; `rg` found no direct boto3 imports or calls in agent Python files; `git diff --check` passed.
+- Runtime limitation: dependency installation and real AWS/DB/Qdrant integration were not run, so LangChain AWS model and embedding calls were not live-tested.

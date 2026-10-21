@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-import boto3
 import redis
 from dotenv import load_dotenv
+from langchain_aws import ChatBedrockConverse
 from langgraph.graph import END, START, StateGraph
 
 from invoice_auditor.db.session import SessionLocal
@@ -39,11 +39,6 @@ TRANSLATION_MODEL_ID = os.getenv(
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CACHE_TTL_SECONDS = 30 * 24 * 60 * 60
 
-bedrock_client = boto3.client(
-    "bedrock-runtime",
-    region_name=AWS_REGION,
-)
-
 redis_client = redis.Redis.from_url(
     REDIS_URL,
     decode_responses=True,
@@ -56,27 +51,24 @@ def invoke_bedrock_json(
     user_prompt: str,
 ) -> dict[str, Any]:
     """Invoke a Bedrock Converse model and parse its JSON response."""
-    response = bedrock_client.converse(
-        modelId=model_id,
-        system=[{"text": system_prompt}],
-        messages=[
-            {
-                "role": "user",
-                "content": [{"text": user_prompt}],
-            }
-        ],
-        inferenceConfig={
-            "temperature": 0.0,
-            "maxTokens": 4096,
-        },
+    model = ChatBedrockConverse(
+        model=model_id,
+        region_name=AWS_REGION,
+        temperature=0.0,
+        max_tokens=4096,
     )
-
-    content = response["output"]["message"]["content"]
-    response_text = "".join(
-        block["text"]
-        for block in content
-        if "text" in block
-    ).strip()
+    response = model.invoke(
+        [("system", system_prompt), ("human", user_prompt)]
+    )
+    content = response.content
+    if isinstance(content, list):
+        response_text = "".join(
+            block.get("text", "")
+            for block in content
+            if isinstance(block, dict)
+        ).strip()
+    else:
+        response_text = str(content).strip()
 
     # Tolerate JSON enclosed in Markdown code fences.
     response_text = re.sub(

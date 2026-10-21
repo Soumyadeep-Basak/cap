@@ -26,7 +26,7 @@ import logging
 import re
 from typing import Any
 
-import boto3
+from langchain_aws import ChatBedrockConverse
 from langgraph.graph import END, START, StateGraph
 
 from invoice_auditor.agents.rag_agents.augmentation_agent import (
@@ -49,11 +49,10 @@ from invoice_auditor.config import (
 )
 from invoice_auditor.db.session import SessionLocal
 from invoice_auditor.tools.sql_tools import UnsafeSqlError, run_safe_select
+from invoice_auditor.workflows.input_guardrail import input_guardrail_graph
 from invoice_auditor.workflows.state import RagQueryState
 
 logger = logging.getLogger(__name__)
-
-bedrock_client = boto3.client("bedrock-runtime", region_name=AWS_REGION)
 
 
 def _invoke_bedrock_json(
@@ -62,17 +61,24 @@ def _invoke_bedrock_json(
     user_prompt: str,
 ) -> dict[str, Any]:
     """Invoke a Bedrock Converse model and parse its JSON response."""
-    response = bedrock_client.converse(
-        modelId=model_id,
-        system=[{"text": system_prompt}],
-        messages=[{"role": "user", "content": [{"text": user_prompt}]}],
-        inferenceConfig={"temperature": 0.0, "maxTokens": 1024},
+    model = ChatBedrockConverse(
+        model=model_id,
+        region_name=AWS_REGION,
+        temperature=0.0,
+        max_tokens=1024,
     )
-
-    content = response["output"]["message"]["content"]
-    response_text = "".join(
-        block["text"] for block in content if "text" in block
-    ).strip()
+    response = model.invoke(
+        [("system", system_prompt), ("human", user_prompt)]
+    )
+    content = response.content
+    if isinstance(content, list):
+        response_text = "".join(
+            block.get("text", "")
+            for block in content
+            if isinstance(block, dict)
+        ).strip()
+    else:
+        response_text = str(content).strip()
 
     response_text = re.sub(
         r"^```(?:json)?\s*|\s*```$",
@@ -141,6 +147,47 @@ def route_by_query_type(state: RagQueryState) -> str:
         if state.get("query_type") == "structured"
         else "retrieve"
     )
+
+
+def input_guardrail_node(state: RagQueryState) -> dict[str, Any]:
+    result = input_guardrail_graph.invoke(
+        {"question": state.get("question") or ""}
+    )
+    return {
+        "guardrail_safe": result.get("is_safe", False),
+        "guardrail_error": result.get("guardrail_error"),
+    }
+
+
+def route_after_guardrail(state: RagQueryState) -> str:
+    return "classify_query" if state.get("guardrail_safe") else "blocked"
+
+
+def finalize_guardrail_node(state: RagQueryState) -> dict[str, Any]:
+    error = state.get("guardrail_error")
+    if error:
+        logger.error(
+            "Input guardrail could not assess the question: %s", error
+        )
+        answer = (
+            "The safety check could not be completed. "
+            "Please try again later."
+        )
+        error_code = "input_guardrail_unavailable"
+    else:
+        answer = (
+            "I can help with invoice auditing questions, but I can't assist "
+            "with harmful requests or attempts to bypass safeguards."
+        )
+        error_code = "input_blocked_by_guardrail"
+
+    return {
+        "answer": answer,
+        "answer_source": "guardrail",
+        "query_type": "blocked",
+        "query_status": "failed",
+        "query_error": error_code,
+    }
 
 
 # ------------------------------------------------------------------
@@ -628,6 +675,8 @@ def build_rag_query_graph():
     workflow = StateGraph(RagQueryState)
 
     workflow.add_node("classify_query", classify_query_node)
+    workflow.add_node("input_guardrail", input_guardrail_node)
+    workflow.add_node("finalize_guardrail", finalize_guardrail_node)
     workflow.add_node("structured_path", generate_and_run_sql_node)
     workflow.add_node("retrieve", retrieve_node)
     workflow.add_node("augment", augment_node)
@@ -635,7 +684,16 @@ def build_rag_query_graph():
     workflow.add_node("reflect", reflect_node)
     workflow.add_node("finalize_unstructured", finalize_unstructured_node)
     workflow.add_node("prepare_retry", prepare_retry_node)
-    workflow.add_edge(START, "classify_query")
+    workflow.add_edge(START, "input_guardrail")
+    workflow.add_conditional_edges(
+        "input_guardrail",
+        route_after_guardrail,
+        {
+            "classify_query": "classify_query",
+            "blocked": "finalize_guardrail",
+        },
+    )
+    workflow.add_edge("finalize_guardrail", END)
 
     workflow.add_conditional_edges(
         "classify_query",

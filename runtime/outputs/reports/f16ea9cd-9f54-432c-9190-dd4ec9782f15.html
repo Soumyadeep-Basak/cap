@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invoice Audit Report</title>
+<style>
+body { font-family: Arial, sans-serif; max-width: 1100px;
+       margin: 32px auto; padding: 0 20px; color: #222; }
+h1, h2 { color: #183153; }
+table { border-collapse: collapse; width: 100%; margin-bottom: 24px; }
+th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+th { background: #f2f5f8; }
+.status { padding: 12px; border: 1px solid #ccc; margin: 16px 0; }
+pre { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>Invoice Audit Report</h1>
+<div class="status">
+<strong>Recommendation:</strong>
+manual_review<br>
+<strong>Validation status:</strong>
+partial<br>
+<strong>Translation confidence:</strong>
+1.0
+</div>
+
+<h2>Invoice Details</h2>
+<table><tr><th>invoice_number</th><td>INV-1001</td></tr><tr><th>invoice_date</th><td>2025-03-14</td></tr><tr><th>vendor_id</th><td>VEND-001</td></tr><tr><th>vendor_name</th><td>Global Logistics Ltd</td></tr><tr><th>po_number</th><td>PO-1001</td></tr><tr><th>currency</th><td>USD</td></tr><tr><th>total_amount</th><td>1617.00</td></tr><tr><th>file_path</th><td>/app/data/incoming/INV_EN_001.pdf</td></tr></table>
+
+<h2>Discrepancy Summary</h2>
+<p>Total discrepancies: 1</p>
+<pre>{
+  &quot;total&quot;: 1,
+  &quot;by_severity&quot;: {
+    &quot;medium&quot;: 1
+  },
+  &quot;by_field&quot;: {
+    &quot;line_items[1].unit_price&quot;: 1
+  }
+}</pre>
+
+<h2>Discrepancies</h2>
+<table>
+<thead><tr><th>Field</th><th>Invoice value</th>
+<th>ERP value</th><th>Deviation (%)</th><th>Severity</th></tr></thead>
+<tbody><tr><td>line_items[1].unit_price</td><td>3.50</td><td>3.0000</td><td>16.66666666666666666666666667</td><td>medium</td></tr></tbody>
+</table>
+
+<h2>Missing Fields</h2>
+<ul><li>None</li></ul>
+
+<h2>Validation Errors</h2>
+<ul><li>None</li></ul>
+
+<p><small>Generated at:
+2026-10-19T04:12:07.701585+00:00</small></p>
+</body>
+</html>

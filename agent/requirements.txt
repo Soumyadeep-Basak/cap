@@ -1,0 +1,30 @@
+SQLAlchemy>=2.0,<3.0
+psycopg[binary]>=3.2,<4.0
+python-dotenv>=1.0,<2.0
+httpx
+pdfplumber
+python-docx
+pytesseract
+pdf2image
+
+# Agentic workflow orchestration
+langgraph>=1.0,<2.0
+langchain>=1.0,<2.0
+langchain-text-splitters>=1.0,<2.0
+
+# LLM access (Bedrock) and multi-provider completion
+boto3>=1.40,<2.0
+litellm>=1.100,<2.0
+
+# API service
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.30,<1.0
+pydantic>=2.0,<3.0
+
+# Caching, config, and vector store
+redis>=5.0,<9.0
+PyYAML>=6.0,<7.0
+requests>=2.30,<3.0
+qdrant-client>=1.10,<2.0
+typing_extensions>=4.10,<5.0
+sqlalchemy

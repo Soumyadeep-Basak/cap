@@ -1,0 +1,30 @@
+{
+  "report_version": "1.0",
+  "generated_at": "2026-10-19T04:12:07.732498+00:00",
+  "invoice_id": "3e46190d-4b8b-4d28-a7c9-754402254bf7",
+  "invoice": {
+    "invoice_number": "INV-1002",
+    "invoice_date": "2025-04-20",
+    "vendor_id": "VEND-002",
+    "vendor_name": "BlueOcean Transport Co.",
+    "po_number": "PO-1002",
+    "currency": "USD",
+    "total_amount": "275.00",
+    "file_path": "/app/data/incoming/INV_EN_002.pdf"
+  },
+  "source_language": "en",
+  "translation_confidence": 1.0,
+  "validation_status": "partial",
+  "recommendation": "manual_review",
+  "missing_fields": [
+    "line_items[0].item_code"
+  ],
+  "validation_errors": [],
+  "discrepancy_summary": {
+    "total": 0,
+    "by_severity": {},
+    "by_field": {}
+  },
+  "discrepancies": [],
+  "database_recommendation": "review"
+}

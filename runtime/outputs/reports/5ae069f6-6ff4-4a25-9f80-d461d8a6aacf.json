@@ -1,0 +1,28 @@
+{
+  "report_version": "1.0",
+  "generated_at": "2026-10-19T04:12:07.819379+00:00",
+  "invoice_id": "5ae069f6-6ff4-4a25-9f80-d461d8a6aacf",
+  "invoice": {
+    "invoice_number": "FAC-2025-003",
+    "invoice_date": "2025-04-10",
+    "vendor_id": "VEND-003",
+    "vendor_name": "Transporte Ibérico S.A.",
+    "po_number": "PO-1003",
+    "currency": "EUR",
+    "total_amount": "374.00",
+    "file_path": "/app/data/incoming/INV_ES_003.pdf"
+  },
+  "source_language": "es",
+  "translation_confidence": 0.98,
+  "validation_status": "passed",
+  "recommendation": "approve",
+  "missing_fields": [],
+  "validation_errors": [],
+  "discrepancy_summary": {
+    "total": 0,
+    "by_severity": {},
+    "by_field": {}
+  },
+  "discrepancies": [],
+  "database_recommendation": "approve"
+}

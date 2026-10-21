@@ -1,0 +1,40 @@
+{
+  "report_version": "1.0",
+  "generated_at": "2026-10-16T12:10:33.548266+00:00",
+  "invoice_id": "0d5f989f-8861-47db-af79-c8383ad8a56e",
+  "invoice": {
+    "invoice_number": "INV-1001",
+    "invoice_date": "2025-03-14",
+    "vendor_id": "VEND-001",
+    "vendor_name": "Global Logistics Limited",
+    "po_number": "PO-1001",
+    "currency": "USD",
+    "total_amount": "1617.00",
+    "file_path": "/home/labuser/Desktop/aug26-sp1-l1-fa3-proj-group-35/data/incoming/INV_EN_001.pdf"
+  },
+  "source_language": "en",
+  "translation_confidence": 1.0,
+  "validation_status": "partial",
+  "recommendation": "manual_review",
+  "missing_fields": [],
+  "validation_errors": [],
+  "discrepancy_summary": {
+    "total": 1,
+    "by_severity": {
+      "medium": 1
+    },
+    "by_field": {
+      "line_items[1].unit_price": 1
+    }
+  },
+  "discrepancies": [
+    {
+      "field_name": "line_items[1].unit_price",
+      "invoice_value": "3.50",
+      "erp_value": "3.0000",
+      "deviation_pct": "16.66666666666666666666666667",
+      "severity": "medium"
+    }
+  ],
+  "database_recommendation": "review"
+}

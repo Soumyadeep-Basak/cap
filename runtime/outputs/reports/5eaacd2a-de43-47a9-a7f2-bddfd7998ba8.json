@@ -1,0 +1,31 @@
+{
+  "report_version": "1.0",
+  "generated_at": "2026-10-19T04:12:07.793055+00:00",
+  "invoice_id": "5eaacd2a-de43-47a9-a7f2-bddfd7998ba8",
+  "invoice": {
+    "invoice_number": null,
+    "invoice_date": "2025-06-01",
+    "vendor_id": "VEND-006",
+    "vendor_name": "OceanFreight Pvt Ltd",
+    "po_number": "PO-1006",
+    "currency": null,
+    "total_amount": "44000",
+    "file_path": "/app/data/incoming/INV_EN_006_malformed.pdf"
+  },
+  "source_language": "en",
+  "translation_confidence": 1.0,
+  "validation_status": "partial",
+  "recommendation": "manual_review",
+  "missing_fields": [
+    "currency",
+    "invoice_number"
+  ],
+  "validation_errors": [],
+  "discrepancy_summary": {
+    "total": 0,
+    "by_severity": {},
+    "by_field": {}
+  },
+  "discrepancies": [],
+  "database_recommendation": "review"
+}

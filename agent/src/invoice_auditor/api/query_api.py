@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from invoice_auditor.workflows.rag_workflow import rag_query_graph
+from invoice_auditor.workflows import rag_workflow
 
 router = APIRouter(
     prefix="/api/v1/query",
@@ -29,11 +30,12 @@ class QueryRequest(BaseModel):
 def query_invoices(request: QueryRequest) -> dict[str, Any]:
     """Answer a structured or open-ended question about invoices."""
     try:
-        result = rag_query_graph.invoke(
+        result = rag_workflow.rag_query_graph.invoke(
             {
                 "question": request.question,
                 "invoice_id": request.invoice_id,
-            }
+            },
+            config={"configurable": {"thread_id": str(uuid4())}},
         )
 
         return {

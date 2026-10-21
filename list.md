@@ -121,6 +121,43 @@ The fixes keep both execution branches and the Agent API contract intact. SQL fa
 - Follow-up verification: `python -m compileall -q agent/src/invoice_auditor streamlit-ui/src/invoice_auditor_ui` passed; mocked safe/unsafe/invalid guardrail responses passed; source-level graph checks verified the guardrail is first and has accepted/blocked branches; `rg` found no direct boto3 imports or calls in agent Python files; `git diff --check` passed.
 - Runtime limitation: dependency installation and real AWS/DB/Qdrant integration were not run, so LangChain AWS model and embedding calls were not live-tested.
 
+# PostgreSQL checkpointer follow-up
+
+- **Root cause:** The top-level query graph was compiled without a checkpointer, and API invocations did not provide LangGraph's required `thread_id`. Workflow state therefore was not persisted.
+- **Approach:** Initialize a PostgreSQL checkpointer for the FastAPI lifespan, place its tables in the existing `langgraph` schema, compile the existing graph with it, and provide a unique thread ID for each API request. Existing SQL and RAG routing, retry, and response behavior stay unchanged.
+
+## `agent/src/invoice_auditor/main.py`
+
+- **Purpose:** Configures and runs the FastAPI application lifecycle.
+- **Changes made:** Opens a `PostgresSaver` using the configured database URL, sets the connection search path to `langgraph`, runs the checkpointer setup, and compiles the query graph with that saver for the application lifetime.
+- **Reason:** Enables PostgreSQL checkpoint persistence without restructuring the workflow.
+- **Impact:** SQL and RAG executions through the API use the checkpoint-enabled graph; the saver remains open until application shutdown.
+- **Verification:** Syntax compilation and source-level lifecycle checks passed. PostgreSQL startup and checkpoint writes could not be exercised because the local environment lacks the installed LangGraph package and a running database.
+
+## `agent/src/invoice_auditor/api/query_api.py`
+
+- **Purpose:** Exposes the invoice query API and invokes the query workflow.
+- **Changes made:** Supplies a unique UUID `thread_id` in the graph invocation config.
+- **Reason:** LangGraph requires a thread ID to write checkpoints.
+- **Impact:** Each request has an isolated persisted execution history without changing the API request or response shape.
+- **Verification:** Syntax compilation and source-level invocation checks passed; no live API/database request was available.
+
+## `agent/src/invoice_auditor/workflows/rag_workflow.py`
+
+- **Purpose:** Builds the graph that routes to the structured SQL or unstructured RAG workflow.
+- **Changes made:** Allows the existing graph builder to accept an optional checkpointer and passes it to `workflow.compile`.
+- **Reason:** Makes the graph checkpointable while retaining the existing graph structure and an uncheckpointed module-level fallback.
+- **Impact:** The API installs the checkpoint-enabled graph during startup; both branches remain on the same graph.
+- **Verification:** Syntax compilation and source-level builder checks passed; graph execution with a live saver could not be tested locally.
+
+## `agent/requirements.txt`
+
+- **Purpose:** Declares the Agent service's Python dependencies.
+- **Changes made:** Added `langgraph-checkpoint-postgres`.
+- **Reason:** Provides LangGraph's PostgreSQL saver implementation.
+- **Impact:** Installs the checkpointer package and its psycopg-pool dependency for persistent graph state.
+- **Verification:** Dependency installation/resolution was not run; the local Python environment does not have LangGraph installed.
+
 # LiteLLM routing follow-up
 
 - Generation already used LiteLLM directly. Generation, reflection, query classification/SQL generation, and the input guardrail now use LangChain's `ChatLiteLLM` interface with LiteLLM's Bedrock provider. Translation and embeddings continue to use LangChain AWS.

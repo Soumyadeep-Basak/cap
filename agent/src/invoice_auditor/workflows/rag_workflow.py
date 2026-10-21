@@ -670,7 +670,7 @@ def finalize_unstructured_node(
 # Build graph
 # ------------------------------------------------------------------
 
-def build_rag_query_graph():
+def build_rag_query_graph(checkpointer: Any | None = None):
     """Build the top-level RAG query workflow."""
     workflow = StateGraph(RagQueryState)
 
@@ -723,7 +723,7 @@ def build_rag_query_graph():
     workflow.add_edge("prepare_retry", "retrieve")
     workflow.add_edge("finalize_unstructured", END)
 
-    return workflow.compile()
+    return workflow.compile(checkpointer=checkpointer)
 
 
 rag_query_graph = build_rag_query_graph()

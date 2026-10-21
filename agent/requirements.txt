@@ -9,6 +9,7 @@ pdf2image
 
 # Agentic workflow orchestration
 langgraph>=1.0,<2.0
+langgraph-checkpoint-postgres>=3.2,<4.0
 langchain>=1.0,<2.0
 langchain-aws>=0.2,<2.0
 langchain-litellm>=0.6,<1.0

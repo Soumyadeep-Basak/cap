@@ -1,0 +1,7 @@
+
+{
+  "server_name": "invoice-monitoring-mcp-server",
+  "transport": "streamable-http",
+  "url": "http://monitoring-mcp:8006/mcp",
+  "tool_name": "scan_incoming_invoices"
+}

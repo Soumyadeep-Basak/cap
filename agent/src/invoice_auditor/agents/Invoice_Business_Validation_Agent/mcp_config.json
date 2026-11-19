@@ -1,0 +1,7 @@
+
+{
+  "server_name": "invoice-business-validation-mcp-server",
+  "transport": "streamable-http",
+  "url": "http://business-validation-mcp:8007/mcp",
+  "tool_name": "validate_invoice_against_erp"
+}

@@ -1,0 +1,7 @@
+
+{
+  "server_name": "invoice-reporting-mcp-server",
+  "transport": "streamable-http",
+  "url": "http://reporting-mcp:8005/mcp",
+  "tool_name": "generate_invoice_report"
+}

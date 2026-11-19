@@ -1,0 +1,6 @@
+{
+  "server_name": "invoice-validation-mcp-server",
+  "transport": "streamable-http",
+  "url": "http://validation-mcp:8003/mcp",
+  "tool_name": "validate_invoice_document"
+}

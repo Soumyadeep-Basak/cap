@@ -1,0 +1,7 @@
+
+{
+  "server_name": "invoice-translation-mcp-server",
+  "transport": "streamable-http",
+  "url": "http://translation-mcp:8004/mcp",
+  "tool_name": "translate_invoice_document"
+}

@@ -1,0 +1,6 @@
+{
+  "name": "invoice-rag",
+  "path": "/mcp",
+  "local_url": "http://127.0.0.1:9010/mcp",
+  "timeout_seconds": 90
+}

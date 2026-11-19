@@ -1,0 +1,7 @@
+
+{
+  "server_name": "extractor-mcp-server",
+  "transport": "streamable-http",
+  "url": "http://extractor-mcp:8002/mcp",
+  "tool_name": "extract_invoice_document"
+}

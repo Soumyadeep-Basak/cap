@@ -23,7 +23,7 @@ class AgentApiError(RuntimeError):
 def _request(method: str, path: str, **kwargs: Any) -> Any:
     url = f"{AGENT_API_URL.rstrip('/')}{path}"
     try:
-        response = httpx.request(method, url, timeout=_TIMEOUT, **kwargs)
+        response = httpx.request(method, url, timeout=kwargs.pop("timeout", _TIMEOUT), **kwargs)
     except httpx.RequestError as exc:
         raise AgentApiError(
             f"Could not reach the Agent service at {url}: {exc}"
@@ -90,3 +90,17 @@ def ask_question(
         "/api/v1/query",
         json={"question": question, "invoice_id": invoice_id},
     )
+
+
+def upload_invoice(filename: str, content: bytes, content_type: str | None = None) -> dict[str, Any]:
+    """Send the file to the Agent; the UI never writes the incoming directory."""
+    return _request("POST", "/api/v1/invoices/upload",
+                    files={"file": (filename, content, content_type or "application/octet-stream")},
+                    timeout=httpx.Timeout(600.0, connect=10.0))
+
+def invoice_status(invoice_id: str) -> dict[str, Any]:
+    return _request("GET", f"/api/v1/invoices/{invoice_id}/status")
+
+def retry_invoice_indexing(invoice_id: str) -> dict[str, Any]:
+    return _request("POST", f"/api/v1/invoices/{invoice_id}/reindex",
+                    timeout=httpx.Timeout(180.0, connect=10.0))

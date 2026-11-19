@@ -11,6 +11,7 @@ class InvoiceAuditState(TypedDict, total=False):
 
     # Monitor input and file tracking
     incoming_dir: str
+    uploaded_invoice: dict[str, Any]
     file_path: str
     file_name: str
     file_type: str

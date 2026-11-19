@@ -10,6 +10,7 @@ dashboard only reads audit data directly from PostgreSQL.
 from __future__ import annotations
 
 import re
+import inspect
 import os
 import json
 from html import escape
@@ -102,9 +103,9 @@ def render_summary() -> None:
 def render_invoice_list() -> str | None:
     section("Invoice queue", "Find an invoice, review the evidence, and resolve what matters.")
     filters = st.columns([2.3, 1, 1], gap="small")
-    search = filters[0].text_input("Search invoices", placeholder="Search by invoice, vendor or purchase order", label_visibility="collapsed")
-    status_filter = filters[1].selectbox("Validation status", ["All", "passed", "failed", "partial", "pending"], format_func=lambda x: "All statuses" if x == "All" else x.capitalize(), label_visibility="collapsed")
-    recommendation_filter = filters[2].selectbox("Recommendation", ["All", "approve", "review", "reject"], format_func=lambda x: "All outcomes" if x == "All" else _badge(x), label_visibility="collapsed")
+    search = filters[0].text_input("Search invoices", placeholder="Search by invoice, vendor or purchase order", label_visibility="collapsed", key="queue_search")
+    status_filter = filters[1].selectbox("Validation status", ["All", "passed", "failed", "partial", "pending"], format_func=lambda x: "All statuses" if x == "All" else x.capitalize(), label_visibility="collapsed", key="queue_status")
+    recommendation_filter = filters[2].selectbox("Recommendation", ["All", "approve", "review", "reject"], format_func=lambda x: "All outcomes" if x == "All" else _badge(x), label_visibility="collapsed", key="queue_recommendation")
     invoices = db.list_invoices(status=None if status_filter == "All" else status_filter,
                                 recommendation=None if recommendation_filter == "All" else recommendation_filter)
     if search.strip() and not invoices.empty:
@@ -128,6 +129,11 @@ def render_invoice_list() -> str | None:
                                 "recommendation": st.column_config.TextColumn("Outcome")})
     st.caption(f"{len(invoices)} invoice{'s' if len(invoices) != 1 else ''} shown")
     options = {f"{row.invoice_number or 'Untitled invoice'}  /  {row.vendor_name or 'Unknown vendor'}  ({str(row.invoice_id)[:8]})": str(row.invoice_id) for row in invoices.itertuples()}
+    pending_invoice = st.session_state.pop("open_uploaded_invoice", None)
+    if pending_invoice:
+        matching = next((label for label, value in options.items() if value == pending_invoice), None)
+        if matching:
+            st.session_state["selected_invoice"] = matching
     selected = st.selectbox("Review an invoice", list(options), key="selected_invoice")
     return options[selected]
 
@@ -319,6 +325,11 @@ def render_query_page() -> None:
     scope_options = {"All processed invoices": None}
     if not invoices.empty:
         scope_options.update({f"{row.invoice_number or 'Untitled'} ({str(row.invoice_id)[:8]})": str(row.invoice_id) for row in invoices.itertuples()})
+    pending_scope = st.session_state.pop("pending_query_invoice", None)
+    if pending_scope:
+        matching = next((label for label, value in scope_options.items() if value == pending_scope), None)
+        if matching:
+            st.session_state["query_scope"] = matching
     with st.container(border=True):
         scope_label = st.selectbox("Search within", list(scope_options), key="query_scope")
         question = st.text_area("What would you like to know?", placeholder="Which invoices need review, and why?", height=110, max_chars=4000, key="assistant_question")
@@ -358,6 +369,86 @@ def _set_question(value: str) -> None:
     st.session_state["assistant_question"] = value
 
 
+
+
+def _open_uploaded_invoice_assistant(invoice_id: str) -> None:
+    st.session_state["workspace_nav"] = "Ask a Question"
+    st.session_state["pending_query_invoice"] = invoice_id
+    st.session_state["assistant_question"] = "What discrepancies were found on this invoice?"
+    st.session_state.pop("last_query", None)
+
+
+def render_upload_panel() -> None:
+    with st.expander("Upload a new invoice", expanded=False):
+        st.caption("PDF, DOCX or PNG / up to 20 MB. The file is saved, audited, and indexed for invoice questions.")
+        upload_options = {}
+        if "max_upload_size" in inspect.signature(st.file_uploader).parameters:
+            upload_options["max_upload_size"] = 20
+        uploaded = st.file_uploader("Choose an invoice", type=["pdf", "docx", "png"],
+                                    accept_multiple_files=False, disabled=PREVIEW, key="invoice_upload",
+                                    **upload_options)
+        too_large = uploaded is not None and uploaded.size > 20 * 1024 * 1024
+        if too_large:
+            st.error("This file exceeds the 20 MB invoice limit.")
+        if PREVIEW:
+            st.caption("Uploads are disabled in the sample-data design preview.")
+        if st.button("Upload & process invoice", type="primary",
+                     disabled=PREVIEW or uploaded is None or too_large):
+            with st.status("Saving and processing your invoice...", expanded=True) as progress:
+                st.write("Running extraction, translation, validation, reporting and RAG indexing.")
+                try:
+                    result = agent_client.upload_invoice(uploaded.name, uploaded.getvalue(), uploaded.type)
+                    st.session_state["upload_receipt"] = result
+                    st.session_state["open_uploaded_invoice"] = result["invoice_id"]
+                    # Clear queue filters before their widgets are rendered.
+                    st.session_state["queue_search"] = ""
+                    st.session_state["queue_status"] = "All"
+                    st.session_state["queue_recommendation"] = "All"
+                    st.cache_data.clear()
+                    label = ("Invoice processed and indexed" if result.get("rag_ready") else
+                             "Invoice saved; some processing steps need attention")
+                    progress.update(label=label, state="complete" if result.get("rag_ready") else "error")
+                except agent_client.AgentApiError as exc:
+                    progress.update(label="Upload could not finish", state="error")
+                    st.error(str(exc))
+                    st.caption("If processing timed out, refresh the workspace or upload the same file again. Checksum matching prevents a second audit record.")
+        result = st.session_state.get("upload_receipt")
+        if result:
+            if result.get("duplicate"):
+                st.info("This file is already in the audit workspace. No duplicate record was created.")
+            if result.get("rag_ready"):
+                st.success("Invoice saved and available to the invoice assistant.")
+            elif result.get("processing_status") == "processing":
+                st.info("The invoice is registered. Refresh its status to check processing progress.")
+            else:
+                st.warning(result.get("error") or "The invoice is saved, but processing is not fully complete.")
+            st.caption("Invoice ID: " + result["invoice_id"])
+            states = st.columns(4)
+            states[0].write("**File stored**\n\n" + ("Yes" if result.get("stored") else "Not confirmed"))
+            states[1].write("**Audit record**\n\n" + ("Persisted" if result.get("persisted") else "Not confirmed"))
+            states[2].write("**Report**\n\n" + str(result.get("report_status", "Not complete")).replace("_", " ").capitalize())
+            states[3].write("**RAG index**\n\n" + ("Ready" if result.get("rag_ready") else "Not ready"))
+            actions = st.columns(3)
+            if actions[0].button("Refresh upload status", disabled=PREVIEW):
+                try:
+                    st.session_state["upload_receipt"] = agent_client.invoice_status(result["invoice_id"])
+                    st.cache_data.clear()
+                    st.rerun()
+                except agent_client.AgentApiError as exc:
+                    st.error(str(exc))
+            if not result.get("rag_ready") and result.get("report_status") == "completed":
+                if actions[1].button("Retry RAG indexing", disabled=PREVIEW):
+                    with st.spinner("Indexing saved invoice evidence..."):
+                        try:
+                            st.session_state["upload_receipt"] = agent_client.retry_invoice_indexing(result["invoice_id"])
+                            st.cache_data.clear()
+                            st.rerun()
+                        except agent_client.AgentApiError as exc:
+                            st.error(str(exc))
+            actions[2].button("Ask about this invoice", disabled=PREVIEW or not result.get("rag_ready"),
+                              on_click=_open_uploaded_invoice_assistant, args=(result["invoice_id"],))
+
+
 def main() -> None:
     page = render_sidebar()
     if PREVIEW:
@@ -365,6 +456,7 @@ def main() -> None:
     try:
         if page == "Invoice Dashboard":
             render_page_header("Invoice overview", "Your invoices, exceptions, and decisions. In one place.")
+            render_upload_panel()
             render_summary()
             selected_invoice_id = render_invoice_list()
             if selected_invoice_id:

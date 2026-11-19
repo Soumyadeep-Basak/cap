@@ -35,6 +35,7 @@ from invoice_auditor.services.feedback_service import (
 from invoice_auditor.services.invoice_audit_service import (
     get_invoice_audit,
     save_discrepancies,
+    save_index_result,
     save_validation_result,
 )
 from invoice_auditor.workflows.invoice_workflow import (
@@ -211,6 +212,9 @@ def revalidate_invoice(invoice_id: str) -> dict[str, Any]:
             "report": report,
         }
     )
+
+    with SessionLocal() as db:
+        save_index_result(db, parsed_invoice_id, index_result)
 
     logger.info(
         "Revalidated invoice %s: status=%s recommendation=%s "

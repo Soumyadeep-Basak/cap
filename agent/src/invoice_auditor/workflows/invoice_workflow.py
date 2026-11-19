@@ -43,6 +43,7 @@ from invoice_auditor.db.session import SessionLocal
 from invoice_auditor.services.invoice_audit_service import (
     mark_processing_failed,
     save_discrepancies,
+    save_index_result,
     save_extraction_result,
     save_validation_result,
 )
@@ -88,6 +89,13 @@ def monitor_invoices_node(
     state: InvoiceAuditState,
 ) -> dict[str, Any]:
     """Run the Monitoring Agent through A2A."""
+
+    # Upload API has already performed guarded checksum registration. Reuse
+    # every downstream node, without scanning/registering unrelated files.
+    uploaded = state.get("uploaded_invoice")
+    if uploaded:
+        return {"routed_invoices": [uploaded], "pending_invoices": [uploaded],
+                "discovered_files": [uploaded], "duplicate_files": [], "monitor_errors": []}
 
     result = scan_invoices_via_a2a(state.get("incoming_dir"))
 
@@ -167,6 +175,9 @@ def process_invoices_node(
                 "translated_text": translated_text,
                 "translation_confidence": confidence,
             }
+
+            if invoice_file.get("original_filename"):
+                extracted_raw["original_filename"] = invoice_file["original_filename"]
 
             # 5. Persist the original raw text and extracted fields.
             with SessionLocal() as db:
@@ -857,6 +868,14 @@ def index_invoices_node(
 
             item["index_status"] = "failed"
             item["index_error"] = str(exc)
+
+        try:
+            with SessionLocal() as db:
+                save_index_result(db, UUID(invoice_id), item)
+        except Exception:
+            logger.exception("Could not persist index readiness for invoice %s", invoice_id)
+            item["index_status"] = "failed"
+            item["index_error"] = "Could not persist indexing outcome"
 
     return {
         "extraction_results": extraction_results,

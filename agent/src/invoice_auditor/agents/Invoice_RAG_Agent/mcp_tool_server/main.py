@@ -11,24 +11,27 @@ from invoice_auditor.tools.rag_tools.response_synthesizer import response_synthe
 from invoice_auditor.tools.rag_tools.semantic_retriever import semantic_retriever
 from invoice_auditor.tools.rag_tools.vector_indexer import vector_indexer
 
-config = load_mcp_config()
-server = FastMCP(
-    config["name"],
-    streamable_http_path=config["path"],
-    json_response=True,
-    transport_security=TransportSecuritySettings(
-        enable_dns_rebinding_protection=True,
-        allowed_hosts=["rag-mcp:*", "localhost:*", "127.0.0.1:*", "[::1]:*"],
-        allowed_origins=["http://rag-mcp:*", "http://localhost:*", "http://127.0.0.1:*"],
-    ),
-)
-for tool in (vector_indexer, semantic_retriever, chunk_ranker, response_synthesizer, rag_evaluator):
-    server.add_tool(tool)
+def create_mcp_server():
+    config = load_mcp_config()
+    server = FastMCP(
+        config["name"],
+        streamable_http_path=config["path"],
+        json_response=True,
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=["rag-mcp:*", "localhost:*", "127.0.0.1:*", "[::1]:*"],
+            allowed_origins=["http://rag-mcp:*", "http://localhost:*", "http://127.0.0.1:*"],
+        ),
+    )
+    for tool in (vector_indexer, semantic_retriever, chunk_ranker, response_synthesizer, rag_evaluator):
+        server.add_tool(tool)
 
 
-@server.custom_route("/health", methods=["GET"])
-async def health(_request):
-    return JSONResponse({"status": "ok"})
+    @server.custom_route("/health", methods=["GET"])
+    async def health(_request):
+        return JSONResponse({"status": "ok"})
+    return server
 
 
+server = create_mcp_server()
 app = server.streamable_http_app()

@@ -97,22 +97,22 @@ p,label { color:var(--ink); }
 [data-testid="stSidebar"] [role="radiogroup"] input { accent-color:#9b88ed; }
 
 /* Set foreground and surface together for every action state. */
-:is(.stButton,.stFormSubmitButton,.stDownloadButton) button {
+:is(.stButton,.stFormSubmitButton,.stDownloadButton,[data-testid="stFileUploader"]) button {
   background:#ffffff; color:#35415b; border-color:#d9dce6;
 }
-:is(.stButton,.stFormSubmitButton,.stDownloadButton) button:is(:hover,:active):not(:disabled) {
+:is(.stButton,.stFormSubmitButton,.stDownloadButton,[data-testid="stFileUploader"]) button:is(:hover,:active):not(:disabled) {
   background:#f1eefb; color:#51419d; border-color:#bfb4e7;
 }
-:is(.stButton,.stFormSubmitButton,.stDownloadButton) button[kind="primary"] {
+:is(.stButton,.stFormSubmitButton,.stDownloadButton,[data-testid="stFileUploader"]) button[kind="primary"] {
   background:#6955d9; color:#ffffff; border-color:#6955d9;
 }
-:is(.stButton,.stFormSubmitButton,.stDownloadButton) button[kind="primary"]:is(:hover,:active):not(:disabled) {
+:is(.stButton,.stFormSubmitButton,.stDownloadButton,[data-testid="stFileUploader"]) button[kind="primary"]:is(:hover,:active):not(:disabled) {
   background:#5844c2; color:#ffffff; border-color:#5844c2;
 }
-:is(.stButton,.stFormSubmitButton,.stDownloadButton) button:focus-visible {
+:is(.stButton,.stFormSubmitButton,.stDownloadButton,[data-testid="stFileUploader"]) button:focus-visible {
   outline:3px solid #7c65dc; outline-offset:3px; box-shadow:none;
 }
-:is(.stButton,.stFormSubmitButton,.stDownloadButton) button:disabled {
+:is(.stButton,.stFormSubmitButton,.stDownloadButton,[data-testid="stFileUploader"]) button:disabled {
   background:#ebe8f3; color:#6b617f; border-color:#ddd7e9; opacity:1; cursor:not-allowed;
 }
 [data-testid="stSidebar"] .stButton button {
@@ -124,10 +124,10 @@ p,label { color:var(--ink); }
 [data-testid="stSidebar"] .stButton button:disabled {
   background:#262b3d; color:#9ea6bf; border-color:#373e56;
 }
-:is(.stButton,.stFormSubmitButton,.stDownloadButton) button :is(p,span),
-:is(.stButton,.stFormSubmitButton,.stDownloadButton) button[kind="primary"] :is(p,span),
-:is(.stButton,.stFormSubmitButton,.stDownloadButton) button:disabled :is(p,span),
-:is(.stButton,.stFormSubmitButton,.stDownloadButton) button[kind="primary"]:disabled :is(p,span) {
+:is(.stButton,.stFormSubmitButton,.stDownloadButton,[data-testid="stFileUploader"]) button :is(p,span),
+:is(.stButton,.stFormSubmitButton,.stDownloadButton,[data-testid="stFileUploader"]) button[kind="primary"] :is(p,span),
+:is(.stButton,.stFormSubmitButton,.stDownloadButton,[data-testid="stFileUploader"]) button:disabled :is(p,span),
+:is(.stButton,.stFormSubmitButton,.stDownloadButton,[data-testid="stFileUploader"]) button[kind="primary"]:disabled :is(p,span) {
   color:inherit;
 }
 

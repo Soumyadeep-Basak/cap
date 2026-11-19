@@ -42,3 +42,6 @@ google-adk==2.12.0
 
 # Parsed read-only SQL validation
 sqlglot>=30.0,<31.0
+
+# Browser invoice uploads
+python-multipart>=0.0.18,<1.0

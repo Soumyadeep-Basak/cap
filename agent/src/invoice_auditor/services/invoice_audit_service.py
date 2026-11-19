@@ -309,3 +309,24 @@ def save_discrepancies(
     except Exception:
         db.rollback()
         raise
+
+
+def save_index_result(db: Session, invoice_id: uuid.UUID, result: dict[str, Any]) -> None:
+    """Persist derived-index readiness alongside the authoritative audit evidence."""
+    record = db.get(InvoiceAudit, invoice_id)
+    if record is None:
+        raise ValueError("Invoice audit record not found")
+    evidence = dict(record.extracted_raw or {})
+    evidence["indexing"] = {
+        "index_status": result.get("index_status", "failed"),
+        "indexed_chunks": max(0, int(result.get("indexed_chunks") or 0)),
+        "index_error": "RAG indexing failed" if result.get("index_status") != "completed" else None,
+    }
+    record.extracted_raw = evidence
+    try:
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+    except Exception:
+        db.rollback()
+        raise

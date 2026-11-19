@@ -8,6 +8,9 @@ making an unnecessary model call.
 
 from __future__ import annotations
 
+from invoice_auditor.agents.Invoice_RAG_Agent.pipeline.guardrails.rag_security import validate_query, validate_context
+from invoice_auditor.security.content import GuardrailError, validate_document
+
 import hashlib
 import logging
 from typing import Any
@@ -61,11 +64,17 @@ def generate_answer_node(state: GenerationState) -> dict[str, Any]:
             "generation_error": "No question was provided",
         }
 
+    try:
+        validate_query(question)
+        validate_context(context)
+    except GuardrailError:
+        return {"answer": "", "generation_error": "Unsafe or insufficient invoice evidence"}
     cache_key = _cache_key(question, context)
 
     try:
         cached = None if state.get("bypass_cache") else redis_client.get(cache_key)
         if cached:
+            validate_document(cached)
             return {"answer": cached, "generation_cache_hit": True}
     except Exception:
         logger.warning(
@@ -106,6 +115,7 @@ def generate_answer_node(state: GenerationState) -> dict[str, Any]:
         else:
             answer = str(content).strip()
 
+        validate_document(answer)
         try:
             redis_client.set(cache_key, answer, ex=LLM_CACHE_TTL_SECONDS)
         except Exception:

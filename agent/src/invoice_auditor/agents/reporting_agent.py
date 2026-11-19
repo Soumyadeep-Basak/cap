@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from invoice_auditor.agents.Invoice_Reporting_Agent.guardrails.output_validation import validate_report
+
 import html
 import json
 import logging
@@ -165,7 +167,7 @@ def build_report_node(
         "database_recommendation": database_recommendation,
     }
 
-    report = json_safe(report)
+    report = validate_report(json_safe(report), validation)
 
     reporting_config = load_reporting_config()
     configured_dir = os.getenv(

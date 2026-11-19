@@ -1,4 +1,9 @@
 """Client-side LangGraph nodes for the remote RAG tools."""
+from invoice_auditor.agents.Invoice_RAG_Agent.pipeline.guardrails.rag_security import (
+ validate_chunks, validate_context, validate_citations, triad_score, retry_limit, is_accepted,
+)
+from invoice_auditor.security.content import GuardrailError
+
 
 import logging
 from statistics import mean
@@ -19,8 +24,9 @@ def retrieve_node(state: RagQueryState) -> dict[str, Any]:
             question=state.get("question", ""),
             invoice_id=state.get("invoice_id"),
         )
-    except RagMcpError as exc:
-        return {"retrieved_chunks": [], "query_error": str(exc)}
+        result["retrieved_chunks"] = validate_chunks(result.get("retrieved_chunks", []), state.get("invoice_id"))
+    except (RagMcpError, GuardrailError):
+        return {"retrieved_chunks": [], "query_error": "Invoice evidence could not be validated"}
     return {
         "retrieved_chunks": result.get("retrieved_chunks", []),
         "query_error": "Invoice retrieval failed." if result.get("retrieval_error") else None,
@@ -31,12 +37,17 @@ def augment_node(state: RagQueryState) -> dict[str, Any]:
     if state.get("query_error"):
         return {}
     try:
-        return call_rag_tool(
+        result = call_rag_tool(
             "chunk_ranker",
             question=state.get("question", ""),
             retrieved_chunks=state.get("retrieved_chunks", []),
         )
-    except RagMcpError as exc:
+        validate_chunks(result.get("reranked_chunks", []), state.get("invoice_id"))
+        if result.get("assembled_context"):
+            validate_context(result["assembled_context"], invoice_id=state.get("invoice_id"),
+                             source_ids={str(c["invoice_id"]) for c in state.get("retrieved_chunks", [])})
+        return result
+    except (RagMcpError, GuardrailError) as exc:
         return {"query_error": str(exc)}
 
 
@@ -82,6 +93,8 @@ def reflect_node(state: RagQueryState) -> dict[str, Any]:
         if result.get("reflection_error"):
             raise RagMcpError("Answer evaluation failed.")
 
+        validate_citations(state["answer"], state.get("assembled_context", ""))
+        triad_score([result.get(k) for k in ("answer_relevance", "groundedness", "context_relevance")])
         answer_relevance = float(result.get("answer_relevance", 0.0))
         groundedness = float(result.get("groundedness", 0.0))
         context_relevance = float(result.get("context_relevance", 0.0))
@@ -90,8 +103,8 @@ def reflect_node(state: RagQueryState) -> dict[str, Any]:
         if any(not 0.0 <= score <= 1.0 for score in scores):
             raise ValueError("Reflection returned a score outside 0..1.")
 
-        average_score = mean(scores)
-        passed = average_score > RAG_SCORE_THRESHOLD
+        average_score = triad_score(scores)
+        passed = average_score > max(0.7, RAG_SCORE_THRESHOLD)
 
         return {
             "answer_relevance": answer_relevance,
@@ -116,14 +129,10 @@ def reflect_node(state: RagQueryState) -> dict[str, Any]:
 
 def route_after_reflection(state: RagQueryState) -> str:
     """Accept only a passing evaluation; otherwise retry or reject."""
-    if (
-        state.get("evaluation_status") == "completed"
-        and state.get("passed_reflection") is True
-        and state.get("average_score", 0.0) > RAG_SCORE_THRESHOLD
-    ):
+    if is_accepted(state, RAG_SCORE_THRESHOLD):
         return "accept"
 
-    if int(state.get("retry_count", 0)) < RAG_MAX_RETRIES:
+    if int(state.get("retry_count", 0)) < retry_limit(RAG_MAX_RETRIES):
         return "retry"
 
     return "reject"
@@ -151,11 +160,12 @@ def finalize_unstructured_node(
     state: RagQueryState,
 ) -> dict[str, Any]:
     """Do not mark a failed or low-scoring answer as completed."""
-    accepted = (
-        state.get("evaluation_status") == "completed"
-        and state.get("passed_reflection") is True
-        and state.get("average_score", 0.0) > RAG_SCORE_THRESHOLD
-    )
+    accepted = is_accepted(state, RAG_SCORE_THRESHOLD) and not state.get("query_error")
+    if accepted:
+        try:
+            validate_citations(state.get("answer"), state.get("assembled_context"))
+        except GuardrailError:
+            accepted = False
 
     if accepted:
         status = "completed"

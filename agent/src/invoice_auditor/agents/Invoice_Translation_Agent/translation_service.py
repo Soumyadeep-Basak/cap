@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from invoice_auditor.security.content import validate_document
+
 from typing import Any
 from uuid import UUID
 
@@ -27,6 +29,7 @@ def prepare_translation_state(
     ):
         raise ValueError("raw_extracted_text must not be empty")
 
+    validate_document(raw_extracted_text)
     return {
         "invoice_id": normalized_invoice_id,
         "raw_extracted_text": raw_extracted_text,
@@ -38,6 +41,8 @@ def prepare_translation_response(
 ) -> dict[str, Any]:
     """Return the translation fields required by the parent workflow."""
 
+    if state.get("translated_text"):
+        validate_document(state["translated_text"])
     status = state.get("translation_status", "failed")
 
     if status not in {"completed", "failed"}:

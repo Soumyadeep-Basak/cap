@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from invoice_auditor.security.content import validate_text
+
 from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from invoice_auditor.workflows import rag_workflow
 
@@ -19,11 +21,17 @@ router = APIRouter(
 class QueryRequest(BaseModel):
     """A natural-language question about processed invoices."""
 
-    question: str = Field(min_length=1, description="The auditor's question.")
+    question: str = Field(min_length=1, max_length=4000, description="The auditor's question.")
     invoice_id: UUID | None = Field(
         default=None,
         description="Optional invoice ID to scope an open-ended question to.",
     )
+
+
+    @field_validator("question")
+    @classmethod
+    def safe_question(cls, value):
+        return validate_text(value)
 
 
 @router.post("")
@@ -51,5 +59,5 @@ def query_invoices(request: QueryRequest) -> dict[str, Any]:
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"Query failed: {exc}",
+            detail="Query execution failed",
         ) from exc

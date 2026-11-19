@@ -13,6 +13,8 @@ dedicated rerank model is not provisioned.
 
 from __future__ import annotations
 
+from invoice_auditor.agents.Invoice_RAG_Agent.pipeline.guardrails.rag_security import validate_chunks
+
 import logging
 import re
 from typing import Any
@@ -68,7 +70,7 @@ class AugmentationState(TypedDict, total=False):
 
 def rerank_node(state: AugmentationState) -> dict[str, Any]:
     """Rerank retrieved chunks using the blended heuristic score."""
-    chunks = state.get("retrieved_chunks") or []
+    chunks = validate_chunks(state.get("retrieved_chunks") or [])
     question = state.get("question") or ""
 
     if not chunks:
@@ -123,7 +125,7 @@ def _product_labels(chunks: list[dict[str, Any]]) -> dict[tuple[str, int], str]:
 
 def assemble_context_node(state: AugmentationState) -> dict[str, Any]:
     """Assemble reranked chunks into one context string within budget."""
-    chunks = state.get("reranked_chunks") or []
+    chunks = validate_chunks(state.get("reranked_chunks") or [])
 
     labels = _product_labels(chunks)
     sections: list[str] = []
@@ -147,8 +149,8 @@ def assemble_context_node(state: AugmentationState) -> dict[str, Any]:
             f"[invoice_id={invoice_id} source={source_type}]\n{text}"
         )
 
-        if total_chars + len(section) > MAX_CONTEXT_CHARS and sections:
-            break
+        if total_chars + len(section) > MAX_CONTEXT_CHARS:
+            continue
 
         sections.append(section)
         total_chars += len(section)

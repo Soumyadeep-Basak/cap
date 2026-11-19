@@ -1,3 +1,7 @@
+from invoice_auditor.agents.Invoice_Extractor_Agent.guardrails.file_security import validate_invoice_file
+from invoice_auditor.security.content import validate_document
+from invoice_auditor.config import INCOMING_DIR
+
 import re
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -30,6 +34,7 @@ def parse_amount(value: str) -> Decimal | None:
 def parse_invoice_text(raw_text: str) -> dict:
     """Parse common invoice headers, totals, and line items."""
 
+    validate_document(raw_text)
     invoice_number_match = re.search(
         r"^\s*(?:"
         r"Invoice\s+(?:No\.?|Number)|"
@@ -440,15 +445,22 @@ def extract_png(file_path: Path) -> tuple[str, str]:
 
 def extract_document(file_path: Path) -> tuple[str, str]:
     """Choose the appropriate extraction method based on file extension."""
+    file_path = validate_invoice_file(file_path, INCOMING_DIR)
     extension = file_path.suffix.lower()
 
     if extension == ".pdf":
-        return extract_pdf(file_path)
+        text, method = extract_pdf(file_path)
+        validate_document(text)
+        return text, method
 
     if extension == ".docx":
-        return extract_docx(file_path)
+        text, method = extract_docx(file_path)
+        validate_document(text)
+        return text, method
 
     if extension == ".png":
-        return extract_png(file_path)
+        text, method = extract_png(file_path)
+        validate_document(text)
+        return text, method
 
     raise ValueError(f"Unsupported file type: {extension or '(no extension)'}")

@@ -1,4 +1,7 @@
 """MCP adapter for generating an answer from ranked RAG evidence."""
+from invoice_auditor.agents.Invoice_RAG_Agent.pipeline.guardrails.rag_security import validate_query, validate_context
+from invoice_auditor.security.content import validate_document
+
 
 from anyio import to_thread
 
@@ -19,11 +22,15 @@ async def response_synthesizer(question: str, assembled_context: str, bypass_cac
     """
     from invoice_auditor.agents.Invoice_RAG_Agent.pipeline.generation_agent import generation_graph
 
+    validate_query(question)
+    validate_context(assembled_context)
     result = await to_thread.run_sync(generation_graph.invoke, {
         "question": question,
         "assembled_context": assembled_context,
         "bypass_cache": bypass_cache,
     })
+    if result.get("answer"):
+        validate_document(result["answer"])
     return {
         "answer": result.get("answer", ""),
         "generation_error": result.get("generation_error"),

@@ -1,5 +1,7 @@
 
 """Rule-driven invoice data validation graph."""
+from invoice_auditor.agents.Invoice_Validation_Agent.guardrails.data_validation import validate_invoice_data
+
 
 import logging
 from decimal import Decimal, ROUND_HALF_UP
@@ -60,6 +62,7 @@ LINE_MAPPING = {
 
 def load_rules_node(state: ValidationState) -> dict[str, Any]:
     """Load validation rules from the project configuration."""
+    validate_invoice_data(state.get("invoice"))
     with RULES_PATH.open("r", encoding="utf-8") as file:
         rules = yaml.safe_load(file) or {}
 

@@ -14,6 +14,9 @@ PostgreSQL (via the RAG agents) and the vector index.
 """
 
 from __future__ import annotations
+
+from invoice_auditor.agents.Invoice_RAG_Agent.pipeline.guardrails.rag_security import validate_query
+from invoice_auditor.security.content import GuardrailError
 from sqlalchemy import inspect, text
 
 from invoice_auditor.services.field_labels import format_line_references
@@ -37,7 +40,7 @@ from invoice_auditor.config import (
     BEDROCK_RAG_MODEL_ID,
 )
 from invoice_auditor.db.session import SessionLocal
-from invoice_auditor.workflows.input_guardrail import input_guardrail_graph
+from invoice_auditor.agents.Invoice_RAG_Agent.pipeline.guardrails.input_guardrail import input_guardrail_graph
 from invoice_auditor.workflows.state import RagQueryState
 
 logger = logging.getLogger(__name__)
@@ -141,6 +144,10 @@ def route_by_query_type(state: RagQueryState) -> str:
 
 
 def input_guardrail_node(state: RagQueryState) -> dict[str, Any]:
+    try:
+        validate_query(state.get("question"), state.get("invoice_id"))
+    except GuardrailError:
+        return {"guardrail_safe": False, "guardrail_error": None}
     result = input_guardrail_graph.invoke(
         {"question": state.get("question") or ""}
     )
@@ -496,7 +503,7 @@ def generate_and_run_sql_node(
             ),
             "answer_source": "sql",
             "query_status": "failed",
-            "query_error": str(exc),
+            "query_error": "Structured query execution failed",
             "generated_sql": last_sql,
             "sql_rows": [],
         }

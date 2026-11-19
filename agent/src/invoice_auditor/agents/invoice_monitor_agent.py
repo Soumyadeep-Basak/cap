@@ -1,5 +1,8 @@
 
 """LangGraph subgraph for monitoring incoming invoice files."""
+from invoice_auditor.agents.Invoice_Extractor_Agent.guardrails.file_security import validate_invoice_file
+from invoice_auditor.security.content import GuardrailError
+
 
 import hashlib
 import logging
@@ -78,6 +81,12 @@ def discover_files_node(state: MonitorState) -> dict[str, Any]:
 
         # Ignore metadata sidecars; they are not invoice documents.
         if path.name.lower().endswith(".meta.json"):
+            continue
+
+        try:
+            validate_invoice_file(path, INCOMING_DIR)
+        except GuardrailError as exc:
+            errors.append({"file_path": str(path), "error": str(exc)})
             continue
 
         file_info = {

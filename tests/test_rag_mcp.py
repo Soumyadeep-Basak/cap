@@ -80,6 +80,8 @@ class RagMcpTests(unittest.TestCase):
         question = "What does this invoice say about freight?"
         evidence = "Freight was EUR 20."
         chunk = {"invoice_id": invoice_id, "chunk_text": evidence}
+        context = f"[invoice_id={invoice_id} source=raw_text]\n{evidence}"
+        cited_answer = evidence + " Sources: " + invoice_id
         calls = []
         scores = iter((0.7, 1.0))
         synthesis_attempts = iter((False, True))
@@ -108,14 +110,14 @@ class RagMcpTests(unittest.TestCase):
         ))
         mock(augmentation_agent, "augmentation_graph", stage(
             "rank", {"question": question, "retrieved_chunks": [chunk]},
-            {"reranked_chunks": [chunk], "assembled_context": evidence},
+            {"reranked_chunks": [chunk], "assembled_context": context},
         ))
         mock(generation_agent, "generation_graph", stage(
-            "synthesize", {"question": question, "assembled_context": evidence},
-            {"answer": evidence},
+            "synthesize", {"question": question, "assembled_context": context},
+            {"answer": cited_answer},
         ))
         mock(reflection_agent, "reflection_graph", stage(
-            "evaluate", {"question": question, "assembled_context": evidence, "answer": evidence},
+            "evaluate", {"question": question, "assembled_context": context, "answer": cited_answer},
             score,
         ))
         mock(indexing_agent, "indexing_graph", stage(
@@ -127,7 +129,7 @@ class RagMcpTests(unittest.TestCase):
 
         result = rag_workflow.rag_query_graph.invoke({"invoice_id": invoice_id, "question": question})
         indexed = index_invoice({"invoice_id": invoice_id, "report": {"amount": Decimal("20.00")}})
-        self.assertEqual(result["answer"], evidence)
+        self.assertEqual(result["answer"], cited_answer)
         self.assertEqual(result["query_status"], "completed")
         self.assertEqual(result["retry_count"], 1)
         self.assertEqual(indexed["indexed_chunks"], 1)
@@ -135,7 +137,7 @@ class RagMcpTests(unittest.TestCase):
 
     def test_augmentation_passes_only_three_chunks_to_generation(self):
         chunks = [
-            {"chunk_text": f"Evidence {index}", "score": 1 - index / 10}
+            {"invoice_id": str(uuid4()), "chunk_text": f"Evidence {index}", "score": 1 - index / 10}
             for index in range(5)
         ]
         result = augmentation_agent.augmentation_graph.invoke(
@@ -162,14 +164,18 @@ class RagMcpTests(unittest.TestCase):
             finalize_unstructured_node,
         )
 
+        invoice_id = str(uuid4())
         state = {
             "answer": "Check line_items[0].unit_price and line_items[2].currency.",
             "evaluation_status": "completed",
             "passed_reflection": True,
             "average_score": 0.95,
+            "answer_relevance": 0.95, "groundedness": 0.95, "context_relevance": 0.95,
+            "assembled_context": f"[invoice_id={invoice_id} source=raw_text]\nInvoice pricing evidence",
         }
+        state["answer"] += " Sources: " + invoice_id
         result = finalize_unstructured_node(state)
-        self.assertEqual(result["answer"], "Check Line item 1 · Unit price and Line item 3 · Currency.")
+        self.assertEqual(result["answer"].split(" Sources:")[0], "Check Line item 1 · Unit price and Line item 3 · Currency.")
         sql_answer = rag_workflow._format_sql_answer(
             "Show discrepancies", [{"field_name": "line_items[0].unit_price"}],
         )

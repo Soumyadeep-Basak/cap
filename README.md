@@ -290,3 +290,8 @@ The repository is configured to use AWS Bedrock models. In this environment, the
 - `amazon.titan-embed-text-v1` for embeddings
 
 If your Bedrock account also has access to Cohere Command R+ or other approved models, you can switch model IDs through environment variables without changing code.
+
+
+### Focused guardrails
+
+RAG query/input, parsed SQL, evidence scope, citations and strict evaluation/retry checks live in `agent/src/invoice_auditor/agents/Invoice_RAG_Agent/pipeline/guardrails`. Lightweight file, schema and report guards live with the relevant agents. See [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md) for execution points, test commands and limitations.

@@ -1,4 +1,6 @@
 """MCP adapter for scoring a generated answer using the RAG Triad."""
+from invoice_auditor.agents.Invoice_RAG_Agent.pipeline.guardrails.rag_security import validate_query, validate_citations, triad_score
+
 
 from anyio import to_thread
 
@@ -19,11 +21,15 @@ async def rag_evaluator(question: str, assembled_context: str, answer: str) -> d
     """
     from invoice_auditor.agents.Invoice_RAG_Agent.pipeline.reflection_agent import reflection_graph
 
+    validate_query(question)
+    validate_citations(answer, assembled_context)
     result = await to_thread.run_sync(reflection_graph.invoke, {
         "question": question,
         "assembled_context": assembled_context,
         "answer": answer,
     })
+    if not result.get("reflection_error"):
+        triad_score([result.get(k) for k in ("answer_relevance", "groundedness", "context_relevance")])
     return {
         "answer_relevance": result.get("answer_relevance"),
         "groundedness": result.get("groundedness"),

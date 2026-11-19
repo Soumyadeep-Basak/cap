@@ -1,4 +1,6 @@
 """MCP adapter for retrieving semantically relevant invoice evidence."""
+from invoice_auditor.agents.Invoice_RAG_Agent.pipeline.guardrails.rag_security import validate_query, validate_chunks
+
 
 from typing import Annotated
 from uuid import UUID
@@ -26,12 +28,13 @@ async def semantic_retriever(
     """
     from invoice_auditor.agents.Invoice_RAG_Agent.pipeline.retrieval_agent import retrieval_graph
 
+    validate_query(question, invoice_id)
     result = await to_thread.run_sync(retrieval_graph.invoke, {
         "question": question,
         "invoice_id": str(invoice_id) if invoice_id else None,
         "top_k": top_k,
     })
     return {
-        "retrieved_chunks": result.get("retrieved_chunks", []),
+        "retrieved_chunks": validate_chunks(result.get("retrieved_chunks", []), invoice_id),
         "retrieval_error": result.get("retrieval_error"),
     }
